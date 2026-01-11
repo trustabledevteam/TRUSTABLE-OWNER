@@ -63,15 +63,16 @@ const AuthLogin = () => {
 
         if (error) {
             setError(error.message);
-            setLoading(false);
-        } else if (!data.session) {
-            // Handle cases where login doesn't return a session but no error (e.g., email confirmation needed)
-            setError("Login failed. Please check your credentials or confirm your email.");
-            setLoading(false);
+        } else if (data.user && !data.session) {
+            // This case specifically handles required email confirmation.
+            setError("Please check your email to confirm your account before logging in.");
         }
-        // On success, the useEffect hook will handle navigation when the session state updates.
-    } catch (e) {
-        setError("Network error.");
+        // On success (data.session is not null), the onAuthStateChange listener 
+        // will fire, updating the session in AuthContext, which triggers the 
+        // useEffect in this component to navigate.
+        setLoading(false);
+    } catch (e: any) {
+        setError(e.message || "An unexpected network error occurred.");
         setLoading(false);
     }
   };

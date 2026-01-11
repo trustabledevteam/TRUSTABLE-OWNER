@@ -181,85 +181,86 @@ export const api = {
     };
   },
 
-  // --- COLLECTION SPECIFIC ---
+  // --- COLLECTION & PAYOUT ---
   getSchemeCollectionData: async (schemeId: string) => {
       try {
-          const { data: scheme } = await supabase
-              .from('schemes')
-              .select('id, name, monthly_due, due_day, start_date, late_fee, grace_period_days, default_status_period')
-              .eq('id', schemeId)
-              .single();
+          const { data: scheme } = await supabase.from('schemes').select('id, name, monthly_due, due_day, start_date, late_fee, grace_period_days, default_status_period').eq('id', schemeId).single();
           if (!scheme) throw new Error("Scheme not found");
-
-          const { data: enrollments } = await supabase
-              .from('scheme_enrollments')
-              .select(`id, ticket_number, status, profiles:subscriber_id (id, full_name, phone)`)
-              .eq('scheme_id', schemeId);
+          const { data: enrollments } = await supabase.from('scheme_enrollments').select(`id, ticket_number, status, profiles:subscriber_id (id, full_name, phone)`).eq('scheme_id', schemeId);
           if (!enrollments) return { scheme, subscribers: [] };
-
           const enrollmentIds = enrollments.map(e => e.id);
-          const { data: transactions } = await supabase
-              .from('transactions')
-              .select('enrollment_id, amount, created_at, mode')
-              .in('enrollment_id', enrollmentIds)
-              .eq('status', 'COMPLETED')
-              .order('created_at', { ascending: false });
-
-          const subscribers = enrollments.map(e => {
-              const myTxns = transactions?.filter(t => t.enrollment_id === e.id) || [];
-              return { ...e, transactions: myTxns };
-          });
+          const { data: transactions } = await supabase.from('transactions').select('enrollment_id, amount, created_at, mode, payment_date').in('enrollment_id', enrollmentIds).eq('status', 'COMPLETED').order('created_at', { ascending: false });
+          const subscribers = enrollments.map(e => ({ ...e, transactions: transactions?.filter(t => t.enrollment_id === e.id) || [] }));
           return { scheme, subscribers };
-      } catch (err) {
-          console.error("Collection fetch error:", err);
-          return null;
-      }
+      } catch (err) { console.error("Collection fetch error:", err); return null; }
+  },
+
+  getPendingPayouts: async (schemeId: string): Promise<Payout[]> => {
+    const { data, error } = await supabase.from('payouts').select(`id, amount, due_date, status, enrollment_id, auction_id, auctions ( auction_number ), scheme_enrollments ( profiles ( full_name ) )`).eq('auctions.scheme_id', schemeId).in('status', ['PENDING', 'DOCS_GENERATED', 'SIGNATURE_PENDING']).order('created_at', { ascending: true });
+    if (error) { console.error("Error fetching pending payouts:", error); return []; }
+    return data.map((p: any) => ({
+        id: p.id, amount: p.amount, due_date: p.due_date, status: p.status, enrollment_id: p.enrollment_id, auction_id: p.auction_id,
+        auctionNumber: p.auctions.auction_number, winnerName: p.scheme_enrollments.profiles.full_name
+    }));
+  },
+
+  getPayoutContext: async (payoutId: string) => {
+      const { data: payout, error: payoutError } = await supabase.from('payouts').select(`*, auction:auction_id(*), enrollment:enrollment_id(*, profile:subscriber_id(*))`).eq('id', payoutId).single();
+      if(payoutError) throw payoutError;
+      const { data: scheme, error: schemeError } = await supabase.from('schemes').select('*').eq('id', payout.auction.scheme_id).single();
+      if(schemeError) throw schemeError;
+      const { data: docs, error: docsError } = await supabase.from('documents').select('document_type, file_path').eq('enrollment_id', payout.enrollment.id).in('document_type', ['aadhaar', 'addressProof']);
+      return { payout, auction: payout.auction, scheme, winner: payout.enrollment, kycDocs: docs || [] };
+  },
+
+  uploadPayoutDocument: async (payoutId: string, userId: string, schemeId: string, enrollmentId: string, file: File, docType: string) => {
+    const fileExt = file.name.split('.').pop();
+    const filePath = `${userId}/${payoutId}/${docType}_${Date.now()}.${fileExt}`;
+    const { error: uploadError } = await supabase.storage.from('payout-documents').upload(filePath, file);
+    if (uploadError) throw uploadError;
+    const { error: insertError } = await supabase.from('documents').insert([{
+        owner_id: userId, scheme_id: schemeId, enrollment_id: enrollmentId, payout_id: payoutId,
+        document_type: docType, document_name: file.name, file_path: filePath,
+        file_size: (file.size / 1024 / 1024).toFixed(2) + ' MB',
+        category: 'PAYOUT', status: 'UPLOADED'
+    }]);
+    if(insertError) throw insertError;
+  },
+
+  finalizePayout: async (payoutId: string, transactionRef: string) => {
+      const { error } = await supabase.rpc('process_payout_completion', {
+          payout_id_to_process: payoutId,
+          transaction_reference: transactionRef
+      });
+      if(error) throw error;
   },
 
   getSubscribers: async (schemeId?: string): Promise<Subscriber[]> => {
     try {
-      let query = supabase.from('scheme_enrollments').select(`
-        id, scheme_id, created_at, status, enrollment_type,
-        profiles:subscriber_id (id, full_name, phone, email, is_proxy),
-        schemes:scheme_id (duration_months, start_date, due_day, monthly_due, grace_period_days, default_status_period)
-      `);
+      let query = supabase.from('scheme_enrollments').select(`id, scheme_id, created_at, status, enrollment_type, profiles:subscriber_id (id, full_name, phone, email, is_proxy), schemes:scheme_id (duration_months, start_date, due_day, monthly_due, grace_period_days, default_status_period)`);
       if(schemeId) query = query.eq('scheme_id', schemeId);
       const { data, error } = await query;
-      if (error) return [];
-      if(!data || data.length === 0) return [];
-
+      if (error || !data) return [];
       const enrollmentIds = data.map(e => e.id);
-      const { data: transactions } = await supabase.from('transactions')
-        .select('enrollment_id, created_at, amount').in('enrollment_id', enrollmentIds).eq('status', 'COMPLETED'); 
-
-      return data.map((row: any) => {
-          const myTxns = transactions?.filter(t => t.enrollment_id === row.id) || [];
-          const calculatedStatus = calculateDynamicStatus(row.schemes, myTxns);
-          return {
-              id: row.id, schemeId: row.scheme_id, name: row.profiles?.full_name || 'Unknown',
-              phone: row.profiles?.phone, email: row.profiles?.email,
-              joinDate: new Date(row.created_at).toISOString().split('T')[0], 
-              paymentsMade: myTxns.length, totalInstallments: row.schemes?.duration_months || 0, 
-              lastPaymentDate: myTxns.length > 0 ? new Date(Math.max(...myTxns.map((t:any) => new Date(t.created_at).getTime()))).toISOString().split('T')[0] : 'N/A',
-              status: calculatedStatus, occupation: 'Unknown', location: 'Unknown',
-              type: row.enrollment_type === 'OFFLINE' || row.profiles?.is_proxy ? 'Offline' : 'Online'
-          };
-      });
+      const { data: transactions } = await supabase.from('transactions').select('enrollment_id, created_at, amount, payment_date').in('enrollment_id', enrollmentIds).eq('status', 'COMPLETED'); 
+      return data.map((row: any) => ({
+          id: row.id, schemeId: row.scheme_id, name: row.profiles?.full_name || 'Unknown', phone: row.profiles?.phone, email: row.profiles?.email,
+          joinDate: new Date(row.created_at).toISOString().split('T')[0], 
+          paymentsMade: (transactions?.filter(t => t.enrollment_id === row.id) || []).length, totalInstallments: row.schemes?.duration_months || 0, 
+          lastPaymentDate: transactions && transactions.length > 0 ? new Date(Math.max(...(transactions.filter((t:any) => t.enrollment_id === row.id).map((t:any) => new Date(t.payment_date || t.created_at).getTime())))).toISOString().split('T')[0] : 'N/A',
+          status: calculateDynamicStatus(row.schemes, transactions?.filter(t => t.enrollment_id === row.id) || []), occupation: 'Unknown', location: 'Unknown',
+          type: row.enrollment_type === 'OFFLINE' || row.profiles?.is_proxy ? 'Offline' : 'Online'
+      }));
     } catch(e) { console.error(e); return []; }
   },
 
   getSubscriberDetails: async (enrollmentId: string) => {
       try {
-          const { data: enrollment, error: enrollError } = await supabase
-            .from('scheme_enrollments').select(`*, profiles:subscriber_id (*), schemes:scheme_id (*)`).eq('id', enrollmentId).single();
+          const { data: enrollment, error: enrollError } = await supabase.from('scheme_enrollments').select(`*, profiles:subscriber_id (*), schemes:scheme_id (*)`).eq('id', enrollmentId).single();
           if (enrollError) throw enrollError;
-
           const { data: nominees } = await supabase.from('scheme_nominees').select('*').eq('enrollment_id', enrollmentId);
           const { data: transactions } = await supabase.from('transactions').select('*').eq('enrollment_id', enrollmentId).eq('status', 'COMPLETED').order('created_at', { ascending: false });
-
-          const calculatedStatus = calculateDynamicStatus(enrollment.schemes, transactions || []);
-          enrollment.status = calculatedStatus;
-
+          enrollment.status = calculateDynamicStatus(enrollment.schemes, transactions || []);
           return { enrollment, profile: enrollment.profiles, scheme: enrollment.schemes, nominee: nominees?.[0] || null, transactions: transactions || [] };
       } catch (err) { console.error("Error fetching subscriber details:", err); return null; }
   },
@@ -280,91 +281,38 @@ export const api = {
   },
 
   downloadDocument: async (filePath: string) => {
-      const bucket = filePath.startsWith('subscribers/') ? 'documents' : 'scheme-verification-doc';
+      const bucket = filePath.startsWith('subscribers/') ? 'documents' : filePath.startsWith('generated/') ? 'payout-documents' : 'scheme-verification-doc';
       const { data, error } = await supabase.storage.from(bucket).download(filePath);
       if (error) throw error;
       return data;
   },
 
   getPreviewUrl: async (filePath: string) => {
-      const bucket = filePath.startsWith('subscribers/') ? 'documents' : 'scheme-verification-doc';
-      const { data, error } = await supabase.storage.from(bucket).createSignedUrl(filePath, 3600);
-      if (error) throw error;
+      const bucket = filePath.startsWith('subscribers/') ? 'documents' : filePath.includes('payout') ? 'payout-documents' : 'scheme-verification-doc';
+      const { data } = await supabase.storage.from(bucket).createSignedUrl(filePath, 3600);
+      if(!data) throw new Error("Could not create signed URL");
       return data.signedUrl;
   },
 
   onboardOfflineSubscriber: async (form: any, userId: string, schemeId: string) => {
-      // 1. Find or create the subscriber profile
       let { data: profile } = await supabase.from('profiles').select('id').eq('phone', form.phone).single();
-      const profileData: any = {
-          full_name: form.name, phone: form.phone, email: form.email, pan_number: form.pan, aadhaar_number: form.aadhaar,
-          dob: form.dob || null, gender: form.gender, address: `${form.permAddress1}, ${form.permAddress2 || ''}`,
-          city: form.permCity, state: form.permState, pincode: form.permPincode, employment_status: form.empStatus,
-          monthly_income: parseFloat(form.monthlyIncome) || 0, employer_name: form.employer, bank_name: form.bankName,
-          account_number: form.accountNo, ifsc_code: form.ifsc, account_type: form.accountType, role: 'SUBSCRIBER', is_proxy: true 
-      };
-
-      if (!profile) {
-          const newId = crypto.randomUUID();
-          const { data: newProfile, error } = await supabase.from('profiles').insert([{ ...profileData, id: newId }]).select().single();
-          if(error) throw error;
-          profile = newProfile;
-      } else {
-          await supabase.from('profiles').update(profileData).eq('id', profile.id);
-      }
-
-      // 2. Determine ticket number
+      const profileData: any = { full_name: form.name, phone: form.phone, email: form.email, pan_number: form.pan, aadhaar_number: form.aadhaar, dob: form.dob || null, gender: form.gender, address: `${form.permAddress1}, ${form.permAddress2 || ''}`, city: form.permCity, state: form.permState, pincode: form.permPincode, employment_status: form.empStatus, monthly_income: parseFloat(form.monthlyIncome) || 0, employer_name: form.employer, bank_name: form.bankName, account_number: form.accountNo, ifsc_code: form.ifsc, account_type: form.accountType, role: 'SUBSCRIBER', is_proxy: true };
+      if (!profile) { const { data: newProfile, error } = await supabase.from('profiles').insert([{ ...profileData, id: crypto.randomUUID() }]).select().single(); if(error) throw error; profile = newProfile; } 
+      else { await supabase.from('profiles').update(profileData).eq('id', profile.id); }
       let ticketNumber = 1;
       const { data: maxTicket } = await supabase.from('scheme_enrollments').select('ticket_number').eq('scheme_id', schemeId).order('ticket_number', { ascending: false }).limit(1).single();
-      if (maxTicket && maxTicket.ticket_number) {
-          ticketNumber = maxTicket.ticket_number + 1;
-      }
-
-      // 3. Create the enrollment record
-      const { data: enrollment, error: enrollError } = await supabase.from('scheme_enrollments').insert([{
-          scheme_id: schemeId, subscriber_id: profile.id, ticket_number: ticketNumber, enrollment_type: 'OFFLINE', status: 'ACTIVE'
-      }]).select().single();
+      if (maxTicket?.ticket_number) ticketNumber = maxTicket.ticket_number + 1;
+      const { data: enrollment, error: enrollError } = await supabase.from('scheme_enrollments').insert([{ scheme_id: schemeId, subscriber_id: profile.id, ticket_number: ticketNumber, enrollment_type: 'OFFLINE', status: 'ACTIVE' }]).select().single();
       if(enrollError) throw enrollError;
-
-      // 4. Add nominee if provided
-      if(form.hasNominee) {
-          await supabase.from('scheme_nominees').insert([{
-              enrollment_id: enrollment.id, name: form.nomName, relationship: form.nomRelation, dob: form.nomDob || null,
-              gender: form.nomGender, phone: form.nomPhone, email: form.nomEmail, aadhaar_number: form.nomAadhaar,
-              pan_number: form.nomPan, address: form.nomAddressSame ? form.permAddress1 : form.nomAddress,
-              is_minor: form.nomineeIsMinor, guardian_name: form.guardianName, guardian_relationship: form.guardianRelation
-          }]);
-      }
-
-      // 5. Upload all documents
-      const filesToUpload = {
-        photoDoc: form.photoDoc, panDoc: form.panDoc, aadhaarDoc: form.aadhaarDoc, 
-        addressProofDoc: form.addressProofDoc, bankDoc: form.bankDoc, 
-        agreementDoc: form.agreementDoc, nomineeIdDoc: form.nomineeIdDoc,
-      };
-
-      const uploadPromises = Object.entries(filesToUpload).map(async ([docKey, file]) => {
+      if(form.hasNominee) { await supabase.from('scheme_nominees').insert([{ enrollment_id: enrollment.id, name: form.nomName, relationship: form.nomRelation, dob: form.nomDob || null, gender: form.nomGender, phone: form.nomPhone, email: form.nomEmail, aadhaar_number: form.nomAadhaar, pan_number: form.nomPan, address: form.nomAddressSame ? form.permAddress1 : form.nomAddress, is_minor: form.nomineeIsMinor, guardian_name: form.guardianName, guardian_relationship: form.guardianRelation }]); }
+      const filesToUpload = { photoDoc: form.photoDoc, panDoc: form.panDoc, aadhaarDoc: form.aadhaarDoc, addressProofDoc: form.addressProofDoc, bankDoc: form.bankDoc, agreementDoc: form.agreementDoc, nomineeIdDoc: form.nomineeIdDoc };
+      await Promise.all(Object.entries(filesToUpload).map(async ([docKey, file]) => {
           if (file instanceof File) {
-              const docType = docKey.replace('Doc', '');
-              const fileExt = file.name.split('.').pop();
-              const filePath = `subscribers/${userId}/${enrollment.id}/${docType}_${Date.now()}.${fileExt}`;
-              const fileSize = (file.size / 1024 / 1024).toFixed(2) + ' MB';
-              
-              const { error: uploadError } = await supabase.storage.from('documents').upload(filePath, file);
-              if (uploadError) {
-                  console.error(`Failed to upload ${docType}:`, uploadError);
-                  return; // Continue even if one fails
-              }
-              
-              await supabase.from('documents').insert([{
-                  owner_id: userId, subscriber_id: profile.id, scheme_id: schemeId, enrollment_id: enrollment.id,
-                  document_type: docType, document_name: file.name, file_path: filePath, file_size: fileSize,
-                  category: (docType === 'agreement' ? 'AGREEMENTS' : 'KYC'), status: 'SUBMITTED'
-              }]);
+              const docType = docKey.replace('Doc', ''), fileExt = file.name.split('.').pop(), filePath = `subscribers/${userId}/${enrollment.id}/${docType}_${Date.now()}.${fileExt}`;
+              const { error } = await supabase.storage.from('documents').upload(filePath, file);
+              if (!error) { await supabase.from('documents').insert([{ owner_id: userId, subscriber_id: profile!.id, scheme_id: schemeId, enrollment_id: enrollment.id, document_type: docType, document_name: file.name, file_path: filePath, file_size: (file.size / 1024 / 1024).toFixed(2) + ' MB', category: (docType === 'agreement' ? 'AGREEMENTS' : 'KYC'), status: 'SUBMITTED' }]); }
           }
-      });
-      await Promise.all(uploadPromises);
-
+      }));
       return enrollment;
   },
 
@@ -372,123 +320,50 @@ export const api = {
   getAuctions: async (schemeId: string): Promise<Auction[]> => {
       const { data: scheme } = await supabase.from('schemes').select('*, scheme_enrollments(count)').eq('id', schemeId).single();
       if (!scheme) return [];
-
       const { data: existingAuctions } = await supabase.from('auctions').select('*').eq('scheme_id', schemeId);
-      
-      const auctions: Auction[] = (existingAuctions || []).map((a: any) => {
-          const auctionDate = new Date(a.auction_date);
-          return {
-              id: a.id,
-              schemeId: a.scheme_id,
-              schemeName: scheme.name,
-              auctionNumber: a.auction_number,
-              date: auctionDate.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }),
-              time: auctionDate.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true }),
-              rawDate: auctionDate,
-              status: a.status,
-              winnerName: a.winner_enrollment_id ? 'Winner ID ' + a.winner_enrollment_id.substring(0,4) : undefined,
-              winningBidAmount: a.winning_bid,
-              dividendAmount: a.dividend_amount,
-              payoutStatus: a.payout_status,
-              prizePool: scheme.chit_value,
-              eligibleParticipants: scheme.scheme_enrollments?.[0]?.count || 0,
-              minBid: scheme.discount_min,
-              maxBid: scheme.discount_max,
-          };
-      });
-
-      // Mock generation if needed (can be removed if DB is always populated)
-      if (auctions.length === 0 && scheme.start_date) {
-          // ... (mock generation logic can be kept for robustness)
-      }
-
+      const auctions: Auction[] = (existingAuctions || []).map((a: any) => ({
+          id: a.id, schemeId: a.scheme_id, schemeName: scheme.name, auctionNumber: a.auction_number,
+          date: new Date(a.auction_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }),
+          time: new Date(a.auction_date).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true }),
+          rawDate: new Date(a.auction_date), status: a.status, winnerName: a.winner_enrollment_id ? 'Winner ID ' + a.winner_enrollment_id.substring(0,4) : undefined,
+          winningBidAmount: a.winning_bid, dividendAmount: a.dividend_amount, payoutStatus: a.payout_status,
+          prizePool: scheme.chit_value, eligibleParticipants: scheme.scheme_enrollments?.[0]?.count || 0,
+          minBid: scheme.discount_min, maxBid: scheme.discount_max,
+      }));
       return auctions.sort((a,b) => (a.rawDate?.getTime() || 0) - (b.rawDate?.getTime() || 0));
   },
 
   updateAuction: async (auctionId: string, schemeId: string, updates: { date: string, time: string, minBid: number, maxBid: number }) => {
-    // Combine date and time into a single ISO string for the database
     const newDateTime = new Date(`${updates.date} ${updates.time}`).toISOString();
-    
-    // Update auction date
-    const { error: auctionError } = await supabase
-        .from('auctions')
-        .update({ auction_date: newDateTime })
-        .eq('id', auctionId);
-
+    const { error: auctionError } = await supabase.from('auctions').update({ auction_date: newDateTime }).eq('id', auctionId);
     if (auctionError) throw auctionError;
-
-    // Update scheme bid limits
-    const { error: schemeError } = await supabase
-        .from('schemes')
-        .update({ discount_min: updates.minBid, discount_max: updates.maxBid })
-        .eq('id', schemeId);
-    
+    const { error: schemeError } = await supabase.from('schemes').update({ discount_min: updates.minBid, discount_max: updates.maxBid }).eq('id', schemeId);
     if (schemeError) throw schemeError;
   },
   
   getProxyBids: async (auctionId: string): Promise<ProxyBid[]> => {
     if (!auctionId.startsWith('mock-')) {
-        const { data, error } = await supabase
-            .from('proxy_bids')
-            .select('*')
-            .eq('auction_id', auctionId);
-        
-        if (error) {
-            console.error("Error fetching proxy bids:", error);
-            return [];
-        }
-
-        return data.map((p: any) => ({
-            id: p.id,
-            auctionId: p.auction_id,
-            subscriberId: p.enrollment_id,
-            minAmount: p.min_amount || 0,
-            maxAmount: p.max_amount
-        }));
+        const { data, error } = await supabase.from('proxy_bids').select('*').eq('auction_id', auctionId);
+        if (error) { console.error("Error fetching proxy bids:", error); return []; }
+        return data.map((p: any) => ({ id: p.id, auctionId: p.auction_id, subscriberId: p.enrollment_id, minAmount: p.min_amount || 0, maxAmount: p.max_amount }));
     }
     return [];
   },
 
   setProxyBid: async (schemeId: string, enrollmentId: string, minAmount: number, maxAmount: number) => {
       const { data: auctions } = await supabase.from('auctions').select('id').eq('scheme_id', schemeId).eq('status', 'UPCOMING').limit(1);
-      
-      let auctionId;
-      if (!auctions || auctions.length === 0) {
-          const { data: newAuction, error } = await supabase.from('auctions').insert([{
-              scheme_id: schemeId,
-              auction_number: 1,
-              auction_date: new Date().toISOString(),
-              status: 'UPCOMING'
-          }]).select().single();
+      let auctionId = auctions?.[0]?.id;
+      if (!auctionId) {
+          const { data: newAuction, error } = await supabase.from('auctions').insert([{ scheme_id: schemeId, auction_number: 1, auction_date: new Date().toISOString(), status: 'UPCOMING' }]).select().single();
           if(error) throw error;
           auctionId = newAuction.id;
-      } else {
-          auctionId = auctions[0].id;
       }
-
-      const { error } = await supabase.from('proxy_bids').upsert({
-          auction_id: auctionId,
-          enrollment_id: enrollmentId,
-          min_amount: minAmount,
-          max_amount: maxAmount
-      }, { onConflict: 'auction_id,enrollment_id' });
-      
+      const { error } = await supabase.from('proxy_bids').upsert({ auction_id: auctionId, enrollment_id: enrollmentId, min_amount: minAmount, max_amount: maxAmount }, { onConflict: 'auction_id,enrollment_id' });
       if(error) throw error;
   },
 
   recordPayment: async (enrollmentId: string, amount: number, mode: string, date: string, remarks?: string) => {
-      const { data, error } = await supabase
-        .from('transactions')
-        .insert([{
-            enrollment_id: enrollmentId,
-            amount: amount,
-            mode: mode,
-            type: 'COLLECTION',
-            status: 'COMPLETED',
-            created_at: date || new Date().toISOString()
-        }])
-        .select().single();
-      
+      const { data, error } = await supabase.from('transactions').insert([{ enrollment_id: enrollmentId, amount, mode, type: 'COLLECTION', status: 'COMPLETED', payment_date: date || new Date().toISOString() }]).select().single();
       if(error) throw error;
       return data;
   }

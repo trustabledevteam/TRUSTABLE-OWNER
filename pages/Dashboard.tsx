@@ -18,6 +18,27 @@ interface Reminder {
   completed: boolean;
 }
 
+// Helper to map Supabase data to our local Reminder type
+const mapSupabaseToReminder = (r: any): Reminder => {
+    let timeDisplay = 'Scheduled';
+    if (r.date) {
+        const dateObj = new Date(r.date + 'T00:00:00');
+        timeDisplay = dateObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+        if (r.time) {
+            timeDisplay += ` - ${r.time}`;
+        }
+    }
+    return {
+        id: r.id,
+        title: r.title,
+        priority: r.priority,
+        date: r.date || '',
+        time: r.time || '',
+        timeDisplay: timeDisplay,
+        completed: r.completed,
+    };
+};
+
 export const Dashboard: React.FC = () => {
   const { profile, user } = useAuth();
   
@@ -66,27 +87,7 @@ export const Dashboard: React.FC = () => {
 
       if (error) throw error;
 
-      const mappedReminders: Reminder[] = (data || []).map((r: any) => {
-        let timeDisplay = 'Scheduled';
-        if (r.date) {
-            // Treat date as local to prevent timezone shifts from UTC
-            const dateObj = new Date(r.date + 'T00:00:00');
-            timeDisplay = dateObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-            if (r.time) {
-                timeDisplay += ` - ${r.time}`;
-            }
-        }
-        return {
-            id: r.id,
-            title: r.title,
-            priority: r.priority,
-            date: r.date || '',
-            time: r.time || '',
-            timeDisplay: timeDisplay,
-            completed: r.completed,
-        };
-      });
-      setReminders(mappedReminders);
+      setReminders((data || []).map(mapSupabaseToReminder));
     } catch (err: any) {
       console.error('Error fetching reminders:', err.message || err);
       setRemindersError('Could not load reminders.');
@@ -168,45 +169,40 @@ export const Dashboard: React.FC = () => {
     }
   };
 
-  // 7. Save Reminder
+  // 7. Save Reminder (Create/Update)
   const handleSaveReminder = async () => {
-    if (!taskName.trim()) {
+    if (!taskName.trim() || !user) {
       alert("Please enter a task name.");
       return;
     }
 
     try {
-      if (!user) return;
-
       if (editingReminder) {
-        const { error } = await supabase
+        // UPDATE
+        const { data, error } = await supabase
           .from('reminders')
-          .update({
-            title: taskName,
-            priority,
-            date: taskDate || null,
-            time: taskTime || null,
-          })
-          .eq('id', editingReminder.id);
-
+          .update({ title: taskName, priority, date: taskDate || null, time: taskTime || null })
+          .eq('id', editingReminder.id)
+          .select()
+          .single();
+        
         if (error) throw error;
+        setReminders(prev => prev.map(r => r.id === editingReminder.id ? mapSupabaseToReminder(data) : r));
       } else {
-        const { error } = await supabase
+        // INSERT
+        const { data, error } = await supabase
           .from('reminders')
-          .insert({
-            owner_id: user.id,
-            title: taskName,
-            priority,
-            date: taskDate || null,
-            time: taskTime || null,
-          });
+          .insert({ owner_id: user.id, title: taskName, priority, date: taskDate || null, time: taskTime || null })
+          .select()
+          .single();
 
         if (error) throw error;
+        setReminders(prev => [mapSupabaseToReminder(data), ...prev]);
       }
       setIsModalOpen(false);
-      fetchReminders(); // Refresh list
     } catch (err) {
       console.error('Error saving reminder:', err);
+      alert("Failed to save reminder.");
     }
   };
 

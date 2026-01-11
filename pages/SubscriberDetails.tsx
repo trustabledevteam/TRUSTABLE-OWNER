@@ -93,7 +93,7 @@ export const SubscriberDetails: React.FC = () => {
     const start = new Date(start_date);
 
     // --- Calculate paid installments and penalties from PAST transactions ---
-    const sortedTxns = [...transactions].sort((a: any, b: any) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+    const sortedTxns = [...transactions].sort((a: any, b: any) => new Date(a.payment_date || a.created_at).getTime() - new Date(b.payment_date || b.created_at).getTime());
     const totalPaid = sortedTxns.reduce((acc: number, t: any) => acc + t.amount, 0);
     const paidInstallments = Math.floor(totalPaid / monthly_due);
 
@@ -108,8 +108,10 @@ export const SubscriberDetails: React.FC = () => {
         while (cumulativePaid >= (installmentsCleared + 1) * monthly_due) {
             const installmentIndex = installmentsCleared;
             
+            const effectivePaymentDate = new Date(transaction.payment_date || transaction.created_at);
+
             if (!paymentDatesForInstallments.has(installmentIndex)) {
-                paymentDatesForInstallments.set(installmentIndex, new Date(transaction.created_at));
+                paymentDatesForInstallments.set(installmentIndex, effectivePaymentDate);
             }
 
             const dueDate = new Date(start_date);
@@ -118,7 +120,7 @@ export const SubscriberDetails: React.FC = () => {
             const graceDate = new Date(dueDate);
             graceDate.setDate(dueDate.getDate() + (grace_period_days || 0));
 
-            const paymentDate = new Date(transaction.created_at);
+            const paymentDate = effectivePaymentDate;
             paymentDate.setHours(0, 0, 0, 0);
             graceDate.setHours(0, 0, 0, 0);
 
@@ -263,7 +265,7 @@ export const SubscriberDetails: React.FC = () => {
   const dueInstallments = Math.max(0, totalInstallments - chitProgress.paidInstallments);
   const joiningDate = enrollment.created_at ? new Date(enrollment.created_at).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : '-';
   const lastPayment = transactions && transactions.length > 0 
-    ? new Date(transactions[0].created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+    ? new Date(transactions[0].payment_date || transactions[0].created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
     : '-';
 
   return (

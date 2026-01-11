@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+
+import React, { useState, useEffect } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { 
   LayoutDashboard, 
@@ -21,6 +22,7 @@ import {
   UserCheck
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { supabase } from '../services/supabaseClient';
 
 interface LayoutProps {
   children?: React.ReactNode;
@@ -43,7 +45,45 @@ const SidebarItem = ({ icon: Icon, label, to, isActive }: { icon: any, label: st
 export const Layout: React.FC<LayoutProps> = ({ children }) => {
   const location = useLocation();
   const navigate = useNavigate();
-  const { profile } = useAuth();
+  const { profile, signOut } = useAuth();
+  const [profileImageUrl, setProfileImageUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    const fetchOwnerPhoto = async () => {
+      if (!profile?.id) return;
+
+      try {
+        const { data: doc, error } = await supabase
+          .from('documents')
+          .select('file_path')
+          .eq('owner_id', profile.id)
+          .eq('document_type', 'owner_photo')
+          .single();
+
+        if (error) {
+          console.log('No owner photo found for layout.');
+          setProfileImageUrl(null);
+          return;
+        }
+
+        if (doc) {
+          const { data } = supabase.storage.from('company-onboarding-doc').getPublicUrl(doc.file_path);
+          setProfileImageUrl(data.publicUrl);
+        }
+      } catch (err) {
+        console.error("Error fetching owner photo for layout:", err);
+      }
+    };
+
+    fetchOwnerPhoto();
+  }, [profile?.id]);
+
+  const handleLogout = async () => {
+    await signOut();
+    navigate('/', { replace: true });
+  };
+  
+  const userInitial = profile?.full_name ? profile.full_name.charAt(0).toUpperCase() : 'A';
 
   return (
     <div className="flex h-screen bg-gray-50">
@@ -73,10 +113,7 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
 
         <div className="p-4 border-t border-gray-100">
           <button 
-            onClick={() => {
-                // Handle logout logic here if needed
-                window.location.href = '/'; 
-            }}
+            onClick={handleLogout}
             className="flex items-center space-x-3 px-4 py-3 w-full text-gray-600 hover:text-red-600 transition-colors rounded-lg hover:bg-red-50"
           >
             <LogOut size={20} />
@@ -130,14 +167,20 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
               onClick={() => navigate('/profile')}
             >
               <div className="text-right hidden sm:block">
-                <p className="text-sm font-medium text-gray-900">Moni Roy</p>
-                <p className="text-xs text-gray-500">Admin</p>
+                <p className="text-sm font-medium text-gray-900">{profile?.full_name || 'Account Owner'}</p>
+                <p className="text-xs text-gray-500 capitalize">{profile?.role?.toLowerCase() || 'Owner'}</p>
               </div>
-              <img 
-                src="https://picsum.photos/40/40" 
-                alt="User" 
-                className="h-10 w-10 rounded-full border border-gray-200"
-              />
+              {profileImageUrl ? (
+                  <img 
+                    src={profileImageUrl} 
+                    alt="User" 
+                    className="h-10 w-10 rounded-full border border-gray-200 object-cover bg-gray-100"
+                  />
+              ) : (
+                  <div className="h-10 w-10 rounded-full border border-gray-200 bg-blue-100 text-blue-600 flex items-center justify-center font-bold">
+                      {userInitial}
+                  </div>
+              )}
             </div>
           </div>
         </header>

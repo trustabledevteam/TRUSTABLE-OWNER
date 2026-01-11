@@ -1,4 +1,5 @@
 
+
 export interface Scheme {
   id: string;
   name: string;
@@ -77,12 +78,17 @@ export interface ProxyBid {
 
 export interface Payout {
   id: string;
-  winnerName: string;
-  auctionId: string;
+  auction_id: string;
+  enrollment_id: string;
   amount: number;
-  dueDate: string;
-  status: 'Pending' | 'Processed';
+  due_date: string;
+  status: 'PENDING' | 'DOCS_GENERATED' | 'SIGNATURE_PENDING' | 'PAYMENT_PROCESSING' | 'COMPLETED' | 'Processed';
+  
+  // Joined data for UI
+  winnerName?: string;
+  auctionNumber?: number;
 }
+
 
 export interface Reminder {
   id:string;

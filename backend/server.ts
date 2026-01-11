@@ -12,8 +12,8 @@ const PORT = process.env.PORT || 3000;
 
 // Initialize Supabase Admin Client (Service Role) - In prod use env vars
 const supabase = createClient(
-  process.env.SUPABASE_URL || 'https://xyz.supabase.co', 
-  process.env.SUPABASE_SERVICE_KEY || 'service-role-key'
+  process.env.SUPABASE_URL || 'https://vjrxtdjbtbjoguuhguee.supabase.co', 
+  process.env.SUPABASE_SERVICE_KEY || '' // This MUST be set in your environment variables
 );
 
 // Initialize Auction Engine
@@ -29,11 +29,6 @@ const requireAuth = async (req: any, res: any, next: any) => {
 
   const { data: { user }, error } = await supabase.auth.getUser(token);
   if (error || !user) {
-      // Allow mock user for demo if Supabase not configured
-      if(token === 'mock_token') {
-          req.user = { id: 'mock-user-id' };
-          return next();
-      }
       return res.status(401).json({ error: 'Invalid token' });
   }
   
@@ -163,4 +158,3 @@ app.post('/api/collections/record', requireAuth, async (req: any, res) => {
 httpServer.listen(PORT, () => {
   console.log(`TRUSTABLE Backend running on port ${PORT}`);
 });
-    
