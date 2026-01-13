@@ -73,9 +73,14 @@ export const SchemeSubscribers: React.FC = () => {
 
   const fetchSubscribers = async () => {
       setLoading(true);
-      const data = await api.getSubscribers(id);
-      setSubscribers(data);
-      setLoading(false);
+      try {
+        const data = await api.getSubscribers(id);
+        setSubscribers(data);
+      } catch (error) {
+        console.error("Error fetching subscribers:", error);
+      } finally {
+        setLoading(false);
+      }
   }
 
   const filteredSubscribers = subscribers.filter(sub => {
@@ -125,8 +130,7 @@ export const SchemeSubscribers: React.FC = () => {
       }
   };
 
-  // --- Render Functions ---
-
+  // --- Render Functions (Keeping existing logic) ---
   const renderStepper = () => (
       <div className="flex items-center justify-between px-10 mb-8 relative">
           <div className="absolute left-0 top-1/2 transform -translate-y-1/2 w-full h-0.5 bg-gray-200 -z-10"></div>
@@ -156,112 +160,36 @@ export const SchemeSubscribers: React.FC = () => {
             </h4>
 
             <div className="grid grid-cols-3 gap-4">
-              <Input
-                label="Full Name *"
-                placeholder="e.g. Lakshmi Devi"
-                value={offlineForm.name}
-                onChange={(e) => setOfflineForm({ ...offlineForm, name: e.target.value })}
-              />
-              <Input
-                label="Phone Number *"
-                placeholder="+91 98765 43210"
-                value={offlineForm.phone}
-                onChange={(e) => setOfflineForm({ ...offlineForm, phone: e.target.value })}
-              />
-              <Input
-                label="Email (Optional)"
-                placeholder="email@example.com"
-                value={offlineForm.email}
-                onChange={(e) => setOfflineForm({ ...offlineForm, email: e.target.value })}
-              />
+              <Input label="Full Name *" placeholder="e.g. Lakshmi Devi" value={offlineForm.name} onChange={(e) => setOfflineForm({ ...offlineForm, name: e.target.value })} />
+              <Input label="Phone Number *" placeholder="+91 98765 43210" value={offlineForm.phone} onChange={(e) => setOfflineForm({ ...offlineForm, phone: e.target.value })} />
+              <Input label="Email (Optional)" placeholder="email@example.com" value={offlineForm.email} onChange={(e) => setOfflineForm({ ...offlineForm, email: e.target.value })} />
             </div>
 
             <div className="grid grid-cols-4 gap-4">
-              <Input
-                label="PAN Number *"
-                placeholder="ABCDE1234F"
-                value={offlineForm.pan}
-                onChange={(e) => setOfflineForm({ ...offlineForm, pan: e.target.value.toUpperCase() })}
-              />
-              <Input
-                label="Aadhaar Number *"
-                placeholder="1234 5678 9012"
-                value={offlineForm.aadhaar}
-                onChange={(e) => setOfflineForm({ ...offlineForm, aadhaar: e.target.value })}
-              />
+              <Input label="PAN Number *" placeholder="ABCDE1234F" value={offlineForm.pan} onChange={(e) => setOfflineForm({ ...offlineForm, pan: e.target.value.toUpperCase() })} />
+              <Input label="Aadhaar Number *" placeholder="1234 5678 9012" value={offlineForm.aadhaar} onChange={(e) => setOfflineForm({ ...offlineForm, aadhaar: e.target.value })} />
               <div>
                 <label className="text-sm font-medium text-gray-700 block mb-1">Gender</label>
-                <select
-                  className="w-full border border-gray-300 rounded-lg p-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 bg-white"
-                  value={offlineForm.gender}
-                  onChange={(e) => setOfflineForm({ ...offlineForm, gender: e.target.value })}
-                >
-                  <option value="Male">Male</option>
-                  <option value="Female">Female</option>
-                  <option value="Other">Other</option>
+                <select className="w-full border border-gray-300 rounded-lg p-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 bg-white" value={offlineForm.gender} onChange={(e) => setOfflineForm({ ...offlineForm, gender: e.target.value })} >
+                  <option value="Male">Male</option><option value="Female">Female</option><option value="Other">Other</option>
                 </select>
               </div>
-              <Input
-                label="Date of Birth"
-                type="date"
-                value={offlineForm.dob}
-                onChange={(e) => setOfflineForm({ ...offlineForm, dob: e.target.value })}
-              />
+              <Input label="Date of Birth" type="date" value={offlineForm.dob} onChange={(e) => setOfflineForm({ ...offlineForm, dob: e.target.value })} />
             </div>
 
-            {/* Permanent Address */}
             <h5 className="font-medium text-gray-700 text-sm pt-2 border-t mt-4">Permanent Address *</h5>
             <div className="grid grid-cols-2 gap-4">
-              <Input
-                label="Address Line 1 *"
-                placeholder="House/Flat No, Building Name"
-                value={offlineForm.permAddress1}
-                onChange={(e) => setOfflineForm({ ...offlineForm, permAddress1: e.target.value })}
-              />
-              <Input
-                label="Address Line 2"
-                placeholder="Street, Landmark"
-                value={offlineForm.permAddress2}
-                onChange={(e) => setOfflineForm({ ...offlineForm, permAddress2: e.target.value })}
-              />
+              <Input label="Address Line 1 *" placeholder="House/Flat No, Building Name" value={offlineForm.permAddress1} onChange={(e) => setOfflineForm({ ...offlineForm, permAddress1: e.target.value })} />
+              <Input label="Address Line 2" placeholder="Street, Landmark" value={offlineForm.permAddress2} onChange={(e) => setOfflineForm({ ...offlineForm, permAddress2: e.target.value })} />
             </div>
             <div className="grid grid-cols-3 gap-4">
-              <Input
-                label="City *"
-                placeholder="City"
-                value={offlineForm.permCity}
-                onChange={(e) => setOfflineForm({ ...offlineForm, permCity: e.target.value })}
-              />
-              <Input
-                label="State *"
-                placeholder="State"
-                value={offlineForm.permState}
-                onChange={(e) => setOfflineForm({ ...offlineForm, permState: e.target.value })}
-              />
-              <Input
-                label="Pincode *"
-                placeholder="6 digits"
-                value={offlineForm.permPincode}
-                onChange={(e) => setOfflineForm({ ...offlineForm, permPincode: e.target.value })}
-              />
+              <Input label="City *" placeholder="City" value={offlineForm.permCity} onChange={(e) => setOfflineForm({ ...offlineForm, permCity: e.target.value })} />
+              <Input label="State *" placeholder="State" value={offlineForm.permState} onChange={(e) => setOfflineForm({ ...offlineForm, permState: e.target.value })} />
+              <Input label="Pincode *" placeholder="6 digits" value={offlineForm.permPincode} onChange={(e) => setOfflineForm({ ...offlineForm, permPincode: e.target.value })} />
             </div>
 
-            {/* Present Address */}
             <label className="flex items-center gap-2 text-sm text-gray-600 pt-2">
-              <input
-                type="checkbox"
-                checked={offlineForm.sameAsPerm}
-                onChange={(e) => setOfflineForm({
-                  ...offlineForm,
-                  sameAsPerm: e.target.checked,
-                  presAddress1: e.target.checked ? offlineForm.permAddress1 : '',
-                  presAddress2: e.target.checked ? offlineForm.permAddress2 : '',
-                  presCity: e.target.checked ? offlineForm.permCity : '',
-                  presState: e.target.checked ? offlineForm.permState : '',
-                  presPincode: e.target.checked ? offlineForm.permPincode : '',
-                })}
-                className="w-4 h-4 text-purple-600 rounded"
-              />
+              <input type="checkbox" checked={offlineForm.sameAsPerm} onChange={(e) => setOfflineForm({ ...offlineForm, sameAsPerm: e.target.checked, presAddress1: e.target.checked ? offlineForm.permAddress1 : '', presAddress2: e.target.checked ? offlineForm.permAddress2 : '', presCity: e.target.checked ? offlineForm.permCity : '', presState: e.target.checked ? offlineForm.permState : '', presPincode: e.target.checked ? offlineForm.permPincode : '', })} className="w-4 h-4 text-purple-600 rounded" />
               Present address same as permanent
             </label>
 
@@ -269,291 +197,72 @@ export const SchemeSubscribers: React.FC = () => {
               <>
                 <h5 className="font-medium text-gray-700 text-sm pt-2">Present Address *</h5>
                 <div className="grid grid-cols-2 gap-4">
-                  <Input
-                    label="Address Line 1 *"
-                    placeholder="House/Flat No, Building Name"
-                    value={offlineForm.presAddress1}
-                    onChange={(e) => setOfflineForm({ ...offlineForm, presAddress1: e.target.value })}
-                  />
-                  <Input
-                    label="Address Line 2"
-                    placeholder="Street, Landmark"
-                    value={offlineForm.presAddress2}
-                    onChange={(e) => setOfflineForm({ ...offlineForm, presAddress2: e.target.value })}
-                  />
+                  <Input label="Address Line 1 *" value={offlineForm.presAddress1} onChange={(e) => setOfflineForm({ ...offlineForm, presAddress1: e.target.value })} />
+                  <Input label="Address Line 2" value={offlineForm.presAddress2} onChange={(e) => setOfflineForm({ ...offlineForm, presAddress2: e.target.value })} />
                 </div>
                 <div className="grid grid-cols-3 gap-4">
-                  <Input
-                    label="City *"
-                    placeholder="City"
-                    value={offlineForm.presCity}
-                    onChange={(e) => setOfflineForm({ ...offlineForm, presCity: e.target.value })}
-                  />
-                  <Input
-                    label="State *"
-                    placeholder="State"
-                    value={offlineForm.presState}
-                    onChange={(e) => setOfflineForm({ ...offlineForm, presState: e.target.value })}
-                  />
-                  <Input
-                    label="Pincode *"
-                    placeholder="6 digits"
-                    value={offlineForm.presPincode}
-                    onChange={(e) => setOfflineForm({ ...offlineForm, presPincode: e.target.value })}
-                  />
+                  <Input label="City *" value={offlineForm.presCity} onChange={(e) => setOfflineForm({ ...offlineForm, presCity: e.target.value })} />
+                  <Input label="State *" value={offlineForm.presState} onChange={(e) => setOfflineForm({ ...offlineForm, presState: e.target.value })} />
+                  <Input label="Pincode *" value={offlineForm.presPincode} onChange={(e) => setOfflineForm({ ...offlineForm, presPincode: e.target.value })} />
                 </div>
               </>
             )}
           </div>
         );
-
-      case 2:
+      case 2: // Banking Details
         return (
           <div className="space-y-4 animate-in fade-in slide-in-from-right-4">
             <h4 className="font-bold text-gray-800 text-sm border-b pb-2 flex items-center gap-2">
-              <span className="w-6 h-6 bg-purple-600 text-white text-xs rounded-full flex items-center justify-center">2</span>
-              Employment & Banking Details
+              <span className="w-6 h-6 bg-purple-600 text-white text-xs rounded-full flex items-center justify-center">2</span> Employment & Banking Details
             </h4>
-
             <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="text-sm font-medium text-gray-700 block mb-1">Employment Status</label>
-                <select
-                  className="w-full border border-gray-300 rounded-lg p-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 bg-white"
-                  value={offlineForm.empStatus}
-                  onChange={(e) => setOfflineForm({ ...offlineForm, empStatus: e.target.value })}
-                >
-                  <option value="">Select Status</option>
-                  <option value="Salaried">Salaried</option>
-                  <option value="Self-Employed">Self-Employed</option>
-                  <option value="Business">Business Owner</option>
-                  <option value="Retired">Retired</option>
-                  <option value="Homemaker">Homemaker</option>
-                  <option value="Student">Student</option>
-                </select>
-              </div>
-              <Input
-                label="Monthly Income (₹)"
-                placeholder="e.g. 50000"
-                value={offlineForm.monthlyIncome}
-                onChange={(e) => setOfflineForm({ ...offlineForm, monthlyIncome: e.target.value })}
-              />
+              <div><label className="text-sm font-medium text-gray-700 block mb-1">Employment Status</label><select className="w-full border border-gray-300 rounded-lg p-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 bg-white" value={offlineForm.empStatus} onChange={(e) => setOfflineForm({ ...offlineForm, empStatus: e.target.value })}><option value="">Select Status</option><option value="Salaried">Salaried</option><option value="Self-Employed">Self-Employed</option><option value="Business">Business Owner</option><option value="Retired">Retired</option></select></div>
+              <Input label="Monthly Income (₹)" placeholder="e.g. 50000" value={offlineForm.monthlyIncome} onChange={(e) => setOfflineForm({ ...offlineForm, monthlyIncome: e.target.value })} />
             </div>
-
-            {(offlineForm.empStatus === 'Salaried' || offlineForm.empStatus === 'Self-Employed') && (
-              <Input
-                label="Employer / Business Name"
-                placeholder="Company or business name"
-                value={offlineForm.employer}
-                onChange={(e) => setOfflineForm({ ...offlineForm, employer: e.target.value })}
-              />
-            )}
-
+            {(offlineForm.empStatus === 'Salaried' || offlineForm.empStatus === 'Self-Employed') && <Input label="Employer / Business Name" value={offlineForm.employer} onChange={(e) => setOfflineForm({ ...offlineForm, employer: e.target.value })} />}
             <h5 className="font-medium text-gray-700 text-sm pt-2">Bank Account Details *</h5>
-
             <div className="grid grid-cols-2 gap-4">
-              <Input
-                label="Bank Name *"
-                placeholder="e.g. State Bank of India"
-                value={offlineForm.bankName}
-                onChange={(e) => setOfflineForm({ ...offlineForm, bankName: e.target.value })}
-              />
-              <div>
-                <label className="text-sm font-medium text-gray-700 block mb-1">Account Type</label>
-                <select
-                  className="w-full border border-gray-300 rounded-lg p-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 bg-white"
-                  value={offlineForm.accountType}
-                  onChange={(e) => setOfflineForm({ ...offlineForm, accountType: e.target.value })}
-                >
-                  <option value="">Select Type</option>
-                  <option value="Savings">Savings</option>
-                  <option value="Current">Current</option>
-                </select>
-              </div>
+              <Input label="Bank Name *" placeholder="e.g. State Bank of India" value={offlineForm.bankName} onChange={(e) => setOfflineForm({ ...offlineForm, bankName: e.target.value })} />
+              <div><label className="text-sm font-medium text-gray-700 block mb-1">Account Type</label><select className="w-full border border-gray-300 rounded-lg p-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 bg-white" value={offlineForm.accountType} onChange={(e) => setOfflineForm({ ...offlineForm, accountType: e.target.value })}><option value="">Select Type</option><option value="Savings">Savings</option><option value="Current">Current</option></select></div>
             </div>
-
             <div className="grid grid-cols-2 gap-4">
-              <Input
-                label="Account Number *"
-                placeholder="Enter account number"
-                value={offlineForm.accountNo}
-                onChange={(e) => setOfflineForm({ ...offlineForm, accountNo: e.target.value })}
-              />
-              <Input
-                label="IFSC Code *"
-                placeholder="e.g. SBIN0001234"
-                value={offlineForm.ifsc}
-                onChange={(e) => setOfflineForm({ ...offlineForm, ifsc: e.target.value.toUpperCase() })}
-              />
+              <Input label="Account Number *" placeholder="Enter account number" value={offlineForm.accountNo} onChange={(e) => setOfflineForm({ ...offlineForm, accountNo: e.target.value })} />
+              <Input label="IFSC Code *" placeholder="e.g. SBIN0001234" value={offlineForm.ifsc} onChange={(e) => setOfflineForm({ ...offlineForm, ifsc: e.target.value.toUpperCase() })} />
             </div>
           </div>
         );
-
-      case 3:
+      case 3: // Nominee
         return (
           <div className="space-y-4 animate-in fade-in slide-in-from-right-4">
             <h4 className="font-bold text-gray-800 text-sm border-b pb-2 flex items-center gap-2">
-              <span className="w-6 h-6 bg-purple-600 text-white text-xs rounded-full flex items-center justify-center">3</span>
-              Nominee Details
+              <span className="w-6 h-6 bg-purple-600 text-white text-xs rounded-full flex items-center justify-center">3</span> Nominee Details
             </h4>
-
-            <label className="flex items-center gap-2 text-sm text-gray-600">
-              <input
-                type="checkbox"
-                checked={offlineForm.hasNominee}
-                onChange={(e) => setOfflineForm({ ...offlineForm, hasNominee: e.target.checked })}
-                className="w-4 h-4 text-purple-600 rounded"
-              />
-              Add a nominee for this subscription
-            </label>
-
+            <label className="flex items-center gap-2 text-sm text-gray-600"><input type="checkbox" checked={offlineForm.hasNominee} onChange={(e) => setOfflineForm({ ...offlineForm, hasNominee: e.target.checked })} className="w-4 h-4 text-purple-600 rounded" /> Add a nominee for this subscription</label>
             {offlineForm.hasNominee && (
               <>
                 <div className="grid grid-cols-4 gap-4">
-                  <Input
-                    label="Nominee Name *"
-                    placeholder="Full name"
-                    value={offlineForm.nomName}
-                    onChange={(e) => setOfflineForm({ ...offlineForm, nomName: e.target.value })}
-                  />
-                  <Input
-                    label="Date of Birth"
-                    type="date"
-                    value={offlineForm.nomDob}
-                    onChange={(e) => setOfflineForm({ ...offlineForm, nomDob: e.target.value })}
-                  />
-                  <div>
-                    <label className="text-sm font-medium text-gray-700 block mb-1">Gender</label>
-                    <select
-                      className="w-full border border-gray-300 rounded-lg p-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 bg-white"
-                      value={offlineForm.nomGender}
-                      onChange={(e) => setOfflineForm({ ...offlineForm, nomGender: e.target.value })}
-                    >
-                      <option value="">Select Gender</option>
-                      <option value="Male">Male</option>
-                      <option value="Female">Female</option>
-                      <option value="Other">Other</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="text-sm font-medium text-gray-700 block mb-1">Relationship *</label>
-                    <select
-                      className="w-full border border-gray-300 rounded-lg p-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 bg-white"
-                      value={offlineForm.nomRelation}
-                      onChange={(e) => setOfflineForm({ ...offlineForm, nomRelation: e.target.value })}
-                    >
-                      <option value="">Select Relationship</option>
-                      <option value="Spouse">Spouse</option>
-                      <option value="Son">Son</option>
-                      <option value="Daughter">Daughter</option>
-                      <option value="Father">Father</option>
-                      <option value="Mother">Mother</option>
-                      <option value="Brother">Brother</option>
-                      <option value="Sister">Sister</option>
-                      <option value="Other">Other</option>
-                    </select>
-                  </div>
+                  <Input label="Nominee Name *" placeholder="Full name" value={offlineForm.nomName} onChange={(e) => setOfflineForm({ ...offlineForm, nomName: e.target.value })} />
+                  <Input label="Date of Birth" type="date" value={offlineForm.nomDob} onChange={(e) => setOfflineForm({ ...offlineForm, nomDob: e.target.value })} />
+                  <div><label className="text-sm font-medium text-gray-700 block mb-1">Gender</label><select className="w-full border border-gray-300 rounded-lg p-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 bg-white" value={offlineForm.nomGender} onChange={(e) => setOfflineForm({ ...offlineForm, nomGender: e.target.value })}><option value="">Select</option><option value="Male">Male</option><option value="Female">Female</option></select></div>
+                  <div><label className="text-sm font-medium text-gray-700 block mb-1">Relationship *</label><select className="w-full border border-gray-300 rounded-lg p-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 bg-white" value={offlineForm.nomRelation} onChange={(e) => setOfflineForm({ ...offlineForm, nomRelation: e.target.value })}><option value="Spouse">Spouse</option><option value="Son">Son</option><option value="Daughter">Daughter</option><option value="Father">Father</option><option value="Mother">Mother</option></select></div>
                 </div>
-
                 <div className="grid grid-cols-4 gap-4">
-                  <Input
-                    label="Nominee Phone"
-                    placeholder="+91 98765 43210"
-                    value={offlineForm.nomPhone}
-                    onChange={(e) => setOfflineForm({ ...offlineForm, nomPhone: e.target.value })}
-                  />
-                  <Input
-                    label="Nominee Email"
-                    placeholder="nominee@email.com"
-                    value={offlineForm.nomEmail}
-                    onChange={(e) => setOfflineForm({ ...offlineForm, nomEmail: e.target.value })}
-                  />
-                  <Input
-                    label="Nominee Aadhaar"
-                    placeholder="1234 5678 9012"
-                    value={offlineForm.nomAadhaar}
-                    onChange={(e) => setOfflineForm({ ...offlineForm, nomAadhaar: e.target.value })}
-                  />
-                  <Input
-                    label="Nominee PAN"
-                    placeholder="ABCDE1234F"
-                    value={offlineForm.nomPan}
-                    onChange={(e) => setOfflineForm({ ...offlineForm, nomPan: e.target.value })}
-                  />
+                  <Input label="Nominee Phone" value={offlineForm.nomPhone} onChange={(e) => setOfflineForm({ ...offlineForm, nomPhone: e.target.value })} />
+                  <Input label="Nominee Email" value={offlineForm.nomEmail} onChange={(e) => setOfflineForm({ ...offlineForm, nomEmail: e.target.value })} />
+                  <Input label="Nominee Aadhaar" value={offlineForm.nomAadhaar} onChange={(e) => setOfflineForm({ ...offlineForm, nomAadhaar: e.target.value })} />
+                  <Input label="Nominee PAN" value={offlineForm.nomPan} onChange={(e) => setOfflineForm({ ...offlineForm, nomPan: e.target.value })} />
                 </div>
-
-                <label className="flex items-center gap-2 text-sm text-gray-600">
-                  <input
-                    type="checkbox"
-                    checked={offlineForm.nomAddressSame}
-                    onChange={(e) => setOfflineForm({ ...offlineForm, nomAddressSame: e.target.checked })}
-                    className="w-4 h-4 text-purple-600 rounded"
-                  />
-                  Nominee address same as subscriber
-                </label>
-
-                {!offlineForm.nomAddressSame && (
-                  <div>
-                    <label className="text-sm font-medium text-gray-700 block mb-1">Nominee Address</label>
-                    <textarea
-                      className="w-full border border-gray-300 rounded-lg p-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 h-16 resize-none"
-                      placeholder="Enter nominee's full address..."
-                      value={offlineForm.nomAddress}
-                      onChange={(e) => setOfflineForm({ ...offlineForm, nomAddress: e.target.value })}
-                    />
-                  </div>
-                )}
-
-                <label className="flex items-center gap-2 text-sm text-gray-600">
-                  <input
-                    type="checkbox"
-                    checked={offlineForm.nomineeIsMinor}
-                    onChange={(e) => setOfflineForm({ ...offlineForm, nomineeIsMinor: e.target.checked })}
-                    className="w-4 h-4 text-purple-600 rounded"
-                  />
-                  Nominee is a minor (below 18 years)
-                </label>
-
-                {offlineForm.nomineeIsMinor && (
-                  <div className="bg-yellow-50 border border-yellow-100 p-3 rounded-lg">
-                    <p className="text-xs text-yellow-700 mb-3">Guardian details required for minor nominee:</p>
-                    <div className="grid grid-cols-2 gap-4">
-                      <Input
-                        label="Guardian Name *"
-                        placeholder="Full name"
-                        value={offlineForm.guardianName}
-                        onChange={(e) => setOfflineForm({ ...offlineForm, guardianName: e.target.value })}
-                      />
-                      <div>
-                        <label className="text-sm font-medium text-gray-700 block mb-1">Guardian Relation *</label>
-                        <select
-                          className="w-full border border-gray-300 rounded-lg p-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 bg-white"
-                          value={offlineForm.guardianRelation}
-                          onChange={(e) => setOfflineForm({ ...offlineForm, guardianRelation: e.target.value })}
-                        >
-                          <option value="">Select Relation</option>
-                          <option value="Father">Father</option>
-                          <option value="Mother">Mother</option>
-                          <option value="Legal Guardian">Legal Guardian</option>
-                        </select>
-                      </div>
-                    </div>
-                  </div>
-                )}
+                <label className="flex items-center gap-2 text-sm text-gray-600"><input type="checkbox" checked={offlineForm.nomAddressSame} onChange={(e) => setOfflineForm({ ...offlineForm, nomAddressSame: e.target.checked })} className="w-4 h-4 text-purple-600 rounded" /> Nominee address same as subscriber</label>
+                {!offlineForm.nomAddressSame && <div><label className="text-sm font-medium text-gray-700 block mb-1">Nominee Address</label><textarea className="w-full border border-gray-300 rounded-lg p-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 h-16 resize-none" value={offlineForm.nomAddress} onChange={(e) => setOfflineForm({ ...offlineForm, nomAddress: e.target.value })} /></div>}
               </>
             )}
           </div>
         );
-
-      case 4:
+      case 4: // Documents
         return (
           <div className="space-y-4 animate-in fade-in slide-in-from-right-4">
-            <h4 className="font-bold text-gray-800 text-sm border-b pb-2 flex items-center gap-2">
-              <span className="w-6 h-6 bg-purple-600 text-white text-xs rounded-full flex items-center justify-center">4</span>
-              Documents & Declarations
-            </h4>
-
-            {/* Hidden file inputs */}
+            <h4 className="font-bold text-gray-800 text-sm border-b pb-2 flex items-center gap-2"><span className="w-6 h-6 bg-purple-600 text-white text-xs rounded-full flex items-center justify-center">4</span> Documents & Declarations</h4>
+            {/* File Inputs Hidden */}
             <input type="file" ref={photoFileRef} className="hidden" accept=".jpg,.jpeg,.png" onChange={(e) => handleFileChange(e, 'photoDoc')} />
             <input type="file" ref={panFileRef} className="hidden" accept=".pdf,.jpg,.jpeg,.png" onChange={(e) => handleFileChange(e, 'panDoc')} />
             <input type="file" ref={aadhaarFileRef} className="hidden" accept=".pdf,.jpg,.jpeg,.png" onChange={(e) => handleFileChange(e, 'aadhaarDoc')} />
@@ -562,142 +271,30 @@ export const SchemeSubscribers: React.FC = () => {
             <input type="file" ref={agreementFileRef} className="hidden" accept=".pdf,.jpg,.jpeg,.png" onChange={(e) => handleFileChange(e, 'agreementDoc')} />
             <input type="file" ref={nomineeIdFileRef} className="hidden" accept=".pdf,.jpg,.jpeg,.png" onChange={(e) => handleFileChange(e, 'nomineeIdDoc')} />
 
-            {/* Profile Photo Upload */}
             <div className="mb-4">
               <p className="text-sm font-medium text-gray-700 mb-2">Profile Photo *</p>
-              <div
-                onClick={() => photoFileRef.current?.click()}
-                className={`border rounded-lg p-4 flex items-center gap-4 cursor-pointer transition-colors ${offlineForm.photoDoc ? 'border-green-300 bg-green-50' : 'border-gray-200 border-dashed hover:bg-gray-50'}`}
-              >
-                {offlineForm.photoDoc ? (
-                  <>
-                    <div className="w-16 h-16 rounded-full overflow-hidden bg-gray-100 flex-shrink-0">
-                      <img src={URL.createObjectURL(offlineForm.photoDoc)} alt="Preview" className="w-full h-full object-cover" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-green-700 truncate">{offlineForm.photoDoc.name}</p>
-                      <p className="text-xs text-green-600">Photo uploaded</p>
-                    </div>
-                    <button onClick={(e) => { e.stopPropagation(); setOfflineForm({ ...offlineForm, photoDoc: null }); if (photoFileRef.current) photoFileRef.current.value = ''; }} className="text-gray-400 hover:text-red-500">
-                      <Trash2 size={14} />
-                    </button>
-                  </>
-                ) : (
-                  <>
-                    <div className="w-16 h-16 rounded-full bg-gray-100 flex items-center justify-center flex-shrink-0">
-                      <Upload size={20} className="text-gray-400" />
-                    </div>
-                    <div>
-                      <p className="text-sm font-medium text-gray-700">Upload Subscriber Photo</p>
-                      <p className="text-xs text-gray-500">JPG, PNG (Max 2MB)</p>
-                    </div>
-                  </>
-                )}
+              <div onClick={() => photoFileRef.current?.click()} className={`border rounded-lg p-4 flex items-center gap-4 cursor-pointer transition-colors ${offlineForm.photoDoc ? 'border-green-300 bg-green-50' : 'border-gray-200 border-dashed hover:bg-gray-50'}`}>
+                {offlineForm.photoDoc ? <><div className="w-16 h-16 rounded-full overflow-hidden bg-gray-100 flex-shrink-0"><img src={URL.createObjectURL(offlineForm.photoDoc)} className="w-full h-full object-cover" /></div><div className="flex-1 min-w-0"><p className="text-sm font-medium text-green-700 truncate">{offlineForm.photoDoc.name}</p><p className="text-xs text-green-600">Photo uploaded</p></div></> : <><div className="w-16 h-16 rounded-full bg-gray-100 flex items-center justify-center flex-shrink-0"><Upload size={20} className="text-gray-400" /></div><div><p className="text-sm font-medium text-gray-700">Upload Subscriber Photo</p></div></>}
               </div>
             </div>
-
             <div className="grid grid-cols-2 gap-3">
-              {[
-                  { ref: panFileRef, key: 'panDoc', label: 'Upload PAN Card *' },
-                  { ref: aadhaarFileRef, key: 'aadhaarDoc', label: 'Upload Aadhaar Card *' },
-                  { ref: bankFileRef, key: 'bankDoc', label: 'Upload Bank Proof *' },
-                  { ref: addressFileRef, key: 'addressProofDoc', label: 'Address Proof (Optional)' },
-                  ...(offlineForm.hasNominee ? [{ ref: nomineeIdFileRef, key: 'nomineeIdDoc', label: 'Nominee ID Proof' }] : [])
-              ].map((doc: any, idx) => (
-                  <div
-                    key={idx}
-                    onClick={() => doc.ref.current?.click()}
-                    className={`border rounded-lg p-3 flex items-center gap-3 cursor-pointer transition-colors ${
-                        (offlineForm as any)[doc.key] ? 'border-green-300 bg-green-50' : 'border-gray-200 border-dashed hover:bg-gray-50'
-                    }`}
-                  >
-                    {(offlineForm as any)[doc.key] ? (
-                      <>
-                        <CheckCircle size={18} className="text-green-600" />
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium text-green-700 truncate">{(offlineForm as any)[doc.key].name}</p>
-                          <p className="text-xs text-green-600">Uploaded</p>
-                        </div>
-                        <button onClick={(e) => { e.stopPropagation(); setOfflineForm({ ...offlineForm, [doc.key]: null }); if (doc.ref.current) doc.ref.current.value = ''; }} className="text-gray-400 hover:text-red-500">
-                          <Trash2 size={14} />
-                        </button>
-                      </>
-                    ) : (
-                      <>
-                        <Upload size={18} className="text-gray-400" />
-                        <div>
-                          <p className="text-sm font-medium text-gray-700">{doc.label}</p>
-                          <p className="text-xs text-gray-500">PDF, JPG, PNG</p>
-                        </div>
-                      </>
-                    )}
+              {[{ ref: panFileRef, key: 'panDoc', label: 'Upload PAN Card *' }, { ref: aadhaarFileRef, key: 'aadhaarDoc', label: 'Upload Aadhaar Card *' }, { ref: bankFileRef, key: 'bankDoc', label: 'Upload Bank Proof *' }, { ref: addressFileRef, key: 'addressProofDoc', label: 'Address Proof' }].map((doc: any, idx) => (
+                  <div key={idx} onClick={() => doc.ref.current?.click()} className={`border rounded-lg p-3 flex items-center gap-3 cursor-pointer ${ (offlineForm as any)[doc.key] ? 'border-green-300 bg-green-50' : 'border-gray-200 border-dashed hover:bg-gray-50'}`}>
+                    {(offlineForm as any)[doc.key] ? <><CheckCircle size={18} className="text-green-600" /><div className="flex-1 min-w-0"><p className="text-sm font-medium text-green-700 truncate">{(offlineForm as any)[doc.key].name}</p></div></> : <><Upload size={18} className="text-gray-400" /><div><p className="text-sm font-medium text-gray-700">{doc.label}</p></div></>}
                   </div>
               ))}
             </div>
-
-            {/* Signed Agreement Upload */}
-            <div
-              onClick={() => agreementFileRef.current?.click()}
-              className={`border rounded-lg p-4 flex items-center gap-3 cursor-pointer transition-colors ${offlineForm.agreementDoc ? 'border-green-300 bg-green-50' : 'border-gray-200 border-dashed hover:bg-gray-50'}`}
-            >
-              {offlineForm.agreementDoc ? (
-                <>
-                  <CheckCircle size={20} className="text-green-600" />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-green-700 truncate">{offlineForm.agreementDoc.name}</p>
-                    <p className="text-xs text-green-600">Signed agreement uploaded</p>
-                  </div>
-                  <button onClick={(e) => { e.stopPropagation(); setOfflineForm({ ...offlineForm, agreementDoc: null }); if (agreementFileRef.current) agreementFileRef.current.value = ''; }} className="text-gray-400 hover:text-red-500">
-                    <Trash2 size={14} />
-                  </button>
-                </>
-              ) : (
-                <>
-                  <FileText size={20} className="text-gray-400" />
-                  <div>
-                    <p className="text-sm font-medium text-gray-700">Upload Signed Chit Agreement *</p>
-                    <p className="text-xs text-gray-500">Subscriber's signed agreement document</p>
-                  </div>
-                </>
-              )}
+            <div onClick={() => agreementFileRef.current?.click()} className={`border rounded-lg p-4 flex items-center gap-3 cursor-pointer ${offlineForm.agreementDoc ? 'border-green-300 bg-green-50' : 'border-gray-200 border-dashed hover:bg-gray-50'}`}>
+              {offlineForm.agreementDoc ? <><CheckCircle size={20} className="text-green-600" /><p className="text-sm font-medium text-green-700 truncate">{offlineForm.agreementDoc.name}</p></> : <><FileText size={20} className="text-gray-400" /><p className="text-sm font-medium text-gray-700">Upload Signed Chit Agreement *</p></>}
             </div>
-
             <div className="space-y-3 pt-2">
               <h5 className="font-medium text-gray-700 text-sm">Declarations *</h5>
-
-              <label className="flex items-start gap-2 text-sm text-gray-600 p-3 border border-gray-200 rounded-lg hover:bg-gray-50 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={offlineForm.termsAgreed}
-                  onChange={(e) => setOfflineForm({ ...offlineForm, termsAgreed: e.target.checked })}
-                  className="w-4 h-4 text-purple-600 rounded mt-0.5"
-                />
-                <span>I have read and understood the Terms & Conditions of this chit fund scheme</span>
-              </label>
-
-              <label className="flex items-start gap-2 text-sm text-gray-600 p-3 border border-gray-200 rounded-lg hover:bg-gray-50 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={offlineForm.kycAuth}
-                  onChange={(e) => setOfflineForm({ ...offlineForm, kycAuth: e.target.checked })}
-                  className="w-4 h-4 text-purple-600 rounded mt-0.5"
-                />
-                <span>I authorize the foreman to perform KYC verification on the subscriber's behalf</span>
-              </label>
-
-              <label className="flex items-start gap-2 text-sm text-gray-600 p-3 border border-gray-200 rounded-lg hover:bg-gray-50 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={offlineForm.privacyAgreed}
-                  onChange={(e) => setOfflineForm({ ...offlineForm, privacyAgreed: e.target.checked })}
-                  className="w-4 h-4 text-purple-600 rounded mt-0.5"
-                />
-                <span>I agree to the Chit Agreement as per the Chit Funds Act, 1982 and the Privacy Policy</span>
-              </label>
+              <label className="flex items-start gap-2 text-sm text-gray-600 p-3 border border-gray-200 rounded-lg hover:bg-gray-50 cursor-pointer"><input type="checkbox" checked={offlineForm.termsAgreed} onChange={(e) => setOfflineForm({ ...offlineForm, termsAgreed: e.target.checked })} className="w-4 h-4 text-purple-600 rounded mt-0.5" /><span>I have read and understood the Terms & Conditions</span></label>
+              <label className="flex items-start gap-2 text-sm text-gray-600 p-3 border border-gray-200 rounded-lg hover:bg-gray-50 cursor-pointer"><input type="checkbox" checked={offlineForm.kycAuth} onChange={(e) => setOfflineForm({ ...offlineForm, kycAuth: e.target.checked })} className="w-4 h-4 text-purple-600 rounded mt-0.5" /><span>I authorize the foreman to perform KYC verification</span></label>
+              <label className="flex items-start gap-2 text-sm text-gray-600 p-3 border border-gray-200 rounded-lg hover:bg-gray-50 cursor-pointer"><input type="checkbox" checked={offlineForm.privacyAgreed} onChange={(e) => setOfflineForm({ ...offlineForm, privacyAgreed: e.target.checked })} className="w-4 h-4 text-purple-600 rounded mt-0.5" /><span>I agree to the Chit Agreement & Privacy Policy</span></label>
             </div>
           </div>
         );
-
       default: return null;
     }
   };
@@ -706,55 +303,32 @@ export const SchemeSubscribers: React.FC = () => {
     <div className="space-y-6">
       <div className="mb-6">
          {id && (
-           <button 
-             onClick={() => navigate(`/schemes/${id}`)}
-             className="flex items-center text-gray-500 hover:text-blue-600 transition-colors mb-4 text-sm font-medium group"
-           >
-              <ChevronLeft size={16} className="mr-1 group-hover:-translate-x-1 transition-transform" />
-              Back to Scheme
+           <button onClick={() => navigate(`/schemes/${id}`)} className="flex items-center text-gray-500 hover:text-blue-600 transition-colors mb-4 text-sm font-medium group">
+              <ChevronLeft size={16} className="mr-1 group-hover:-translate-x-1 transition-transform" /> Back to Scheme
            </button>
          )}
          <div className="flex items-center justify-between">
              <div className="flex items-center gap-3">
-                <div className="p-2 bg-blue-50 rounded-lg text-blue-500">
-                    <Users size={24} />
-                </div>
+                <div className="p-2 bg-blue-50 rounded-lg text-blue-500"><Users size={24} /></div>
                 <h1 className="text-2xl font-bold text-gray-900">{pageTitle}</h1>
              </div>
-             
-             <button 
-                onClick={handleAddSubscriber}
-                className="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2.5 rounded-lg font-bold flex items-center gap-2 shadow-lg transition-transform hover:scale-105"
-             >
+             <button onClick={handleAddSubscriber} className="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2.5 rounded-lg font-bold flex items-center gap-2 shadow-lg transition-transform hover:scale-105">
                 <Plus size={18} /> Add Offline Subscriber
              </button>
          </div>
       </div>
 
-      {/* Filter Bar */}
       <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex flex-wrap items-center gap-4">
         <div className="relative flex-1 max-w-md">
            <Search className="absolute left-3 top-2.5 text-gray-400" size={18} />
-           <input 
-             type="text"
-             placeholder="Search by name, ID..."
-             value={searchTerm}
-             onChange={(e) => setSearchTerm(e.target.value)}
-             className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-           />
+           <input type="text" placeholder="Search by name, ID..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
         </div>
         <div className="flex items-center gap-2">
             <span className="text-sm font-medium text-gray-500">Filter:</span>
-            <select className="bg-gray-50 border border-gray-200 rounded-lg text-sm p-2 outline-none">
-                <option>All Status</option>
-                <option>Active</option>
-                <option>Late</option>
-                <option>Default</option>
-            </select>
+            <select className="bg-gray-50 border border-gray-200 rounded-lg text-sm p-2 outline-none"><option>All Status</option><option>Active</option><option>Late</option><option>Default</option></select>
         </div>
       </div>
 
-      {/* Table */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
         {loading ? (
             <div className="flex justify-center p-12"><Loader2 className="animate-spin text-blue-500"/></div>
@@ -776,97 +350,36 @@ export const SchemeSubscribers: React.FC = () => {
                 {filteredSubscribers.length > 0 ? (
                 filteredSubscribers.map((sub) => (
                     <tr key={sub.id} className="hover:bg-gray-50 transition-colors group">
-                    <td className="p-4 pl-6 font-mono text-gray-500 text-xs">
-                        {sub.id.split('-')[0].toUpperCase()}
-                    </td>
-                    <td className="p-4 font-medium text-gray-900 flex items-center gap-2">
-                        <div className="w-8 h-8 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center font-bold text-xs">
-                            {sub.name.charAt(0)}
-                        </div>
-                        {sub.name}
-                    </td>
+                    <td className="p-4 pl-6 font-mono text-gray-500 text-xs">{sub.id.split('-')[0].toUpperCase()}</td>
+                    <td className="p-4 font-medium text-gray-900 flex items-center gap-2"><div className="w-8 h-8 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center font-bold text-xs">{sub.name.charAt(0)}</div>{sub.name}</td>
                     <td className="p-4 text-gray-500">{sub.joinDate}</td>
-                    <td className="p-4 font-medium">
-                        {sub.paymentsMade} <span className="text-gray-400">/ {sub.totalInstallments}</span>
-                    </td>
+                    <td className="p-4 font-medium">{sub.paymentsMade} <span className="text-gray-400">/ {sub.totalInstallments}</span></td>
                     <td className="p-4 text-gray-500">{sub.lastPaymentDate}</td>
-                    <td className="p-4">
-                        <span className={`text-[10px] uppercase font-bold px-2 py-1 rounded ${
-                            sub.type === 'Online' ? 'bg-blue-50 text-blue-600' : 'bg-orange-50 text-orange-600'
-                        }`}>
-                            {sub.type}
-                        </span>
-                    </td>
-                    <td className="p-4">
-                        <Badge variant={sub.status === 'Active' ? 'success' : sub.status === 'Late' ? 'warning' : 'danger'}>
-                            {sub.status}
-                        </Badge>
-                    </td>
+                    <td className="p-4"><span className={`text-[10px] uppercase font-bold px-2 py-1 rounded ${sub.type === 'Online' ? 'bg-blue-50 text-blue-600' : 'bg-orange-50 text-orange-600'}`}>{sub.type}</span></td>
+                    <td className="p-4"><Badge variant={sub.status === 'Active' ? 'success' : sub.status === 'Late' ? 'warning' : 'danger'}>{sub.status}</Badge></td>
                     <td className="p-4 text-center">
                         <div className="flex items-center justify-center gap-2">
-                            <button 
-                                onClick={() => navigate(id ? `/schemes/${id}/subscribers/${sub.id}` : `/subscribers/${sub.id}`)}
-                                className="p-1.5 hover:bg-blue-50 text-blue-600 rounded transition-colors" 
-                                title="View Details"
-                            >
-                                <Eye size={18} />
-                            </button>
-                            <button className="p-1.5 hover:bg-green-50 text-green-600 rounded transition-colors" title="Message">
-                                <MessageSquare size={18} />
-                            </button>
+                            <button onClick={() => navigate(id ? `/schemes/${id}/subscribers/${sub.id}` : `/subscribers/${sub.id}`)} className="p-1.5 hover:bg-blue-50 text-blue-600 rounded transition-colors" title="View Details"><Eye size={18} /></button>
+                            <button className="p-1.5 hover:bg-green-50 text-green-600 rounded transition-colors" title="Message"><MessageSquare size={18} /></button>
                         </div>
                     </td>
                     </tr>
                 ))
                 ) : (
-                    <tr>
-                        <td colSpan={8} className="p-8 text-center text-gray-400">No subscribers found.</td>
-                    </tr>
+                    <tr><td colSpan={8} className="p-8 text-center text-gray-400">No subscribers found.</td></tr>
                 )}
             </tbody>
             </table>
         )}
       </div>
 
-      {/* ADD SUBSCRIBER MODAL (WIZARD) */}
-      <Modal 
-        isOpen={isAddModalOpen} 
-        onClose={() => setIsAddModalOpen(false)} 
-        title="Onboard Offline Subscriber"
-        maxWidth="max-w-4xl"
-      >
+      <Modal isOpen={isAddModalOpen} onClose={() => setIsAddModalOpen(false)} title="Onboard Offline Subscriber" maxWidth="max-w-4xl">
           <div className="pt-2 pb-6">
               {renderStepper()}
-              
-              <div className="px-4 min-h-[400px]">
-                  {renderOfflineStep()}
-              </div>
-
+              <div className="px-4 min-h-[400px]">{renderOfflineStep()}</div>
               <div className="flex justify-between items-center px-4 mt-8 pt-6 border-t border-gray-100">
-                  <button 
-                    onClick={() => setOnboardStep(s => Math.max(1, s - 1))}
-                    disabled={onboardStep === 1}
-                    className={`px-6 py-2.5 rounded-lg font-medium transition-colors ${onboardStep === 1 ? 'text-gray-300 cursor-not-allowed' : 'text-gray-600 hover:bg-gray-100'}`}
-                  >
-                      Back
-                  </button>
-
-                  {onboardStep < 4 ? (
-                      <button 
-                        onClick={handleOfflineNext}
-                        className="bg-purple-600 hover:bg-purple-700 text-white px-8 py-2.5 rounded-lg font-bold flex items-center gap-2 shadow-lg shadow-purple-200 transition-all transform hover:scale-105"
-                      >
-                          Next <ArrowRight size={18} />
-                      </button>
-                  ) : (
-                      <button 
-                        onClick={handleOfflineSubmit}
-                        disabled={isSubmitting}
-                        className="bg-green-600 hover:bg-green-700 text-white px-8 py-2.5 rounded-lg font-bold flex items-center gap-2 shadow-lg shadow-green-200 transition-all transform hover:scale-105 disabled:opacity-70"
-                      >
-                          {isSubmitting ? <Loader2 className="animate-spin" size={18} /> : <>Complete Onboarding <CheckCircle size={18} /></>}
-                      </button>
-                  )}
+                  <button onClick={() => setOnboardStep(s => Math.max(1, s - 1))} disabled={onboardStep === 1} className={`px-6 py-2.5 rounded-lg font-medium transition-colors ${onboardStep === 1 ? 'text-gray-300 cursor-not-allowed' : 'text-gray-600 hover:bg-gray-100'}`}>Back</button>
+                  {onboardStep < 4 ? <button onClick={handleOfflineNext} className="bg-purple-600 hover:bg-purple-700 text-white px-8 py-2.5 rounded-lg font-bold flex items-center gap-2 shadow-lg shadow-purple-200 transition-all transform hover:scale-105">Next <ArrowRight size={18} /></button> : <button onClick={handleOfflineSubmit} disabled={isSubmitting} className="bg-green-600 hover:bg-green-700 text-white px-8 py-2.5 rounded-lg font-bold flex items-center gap-2 shadow-lg shadow-green-200 transition-all transform hover:scale-105 disabled:opacity-70">{isSubmitting ? <Loader2 className="animate-spin" size={18} /> : <>Complete Onboarding <CheckCircle size={18} /></>}</button>}
               </div>
           </div>
       </Modal>

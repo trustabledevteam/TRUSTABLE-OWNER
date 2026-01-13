@@ -38,14 +38,18 @@ export const Auctions: React.FC = () => {
 
   const loadData = async (schemeId: string) => {
       setLoading(true);
-      const auctionData = await api.getAuctions(schemeId);
-      setAuctions(auctionData);
+      try {
+          const auctionData = await api.getAuctions(schemeId);
+          setAuctions(auctionData);
 
-      const upcoming = auctionData.filter(a => a.status !== 'Completed');
-      const next = upcoming.length > 0 ? upcoming[0] : null;
-      setNextAuction(next);
-      
-      setLoading(false);
+          const upcoming = auctionData.filter(a => a.status !== 'Completed');
+          const next = upcoming.length > 0 ? upcoming[0] : null;
+          setNextAuction(next);
+      } catch (error) {
+          console.error("Failed to load auctions:", error);
+      } finally {
+          setLoading(false);
+      }
   };
   
   const handleOpenEditModal = (auction: Auction) => {
@@ -130,7 +134,9 @@ export const Auctions: React.FC = () => {
 
       {activeTab === 'upcoming' && (
           <div>
-              {nextAuction ? (
+              {loading ? (
+                  <div className="flex justify-center p-12"><div className="w-8 h-8 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin"></div></div>
+              ) : nextAuction ? (
                   <div key={nextAuction.id} className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 max-w-2xl">
                       <div className="flex justify-between items-start mb-4">
                           <div>
@@ -163,7 +169,9 @@ export const Auctions: React.FC = () => {
 
       {activeTab === 'completed' && (
           <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-             {completedAuctions.length > 0 ? (
+             {loading ? (
+                 <div className="flex justify-center p-12"><div className="w-8 h-8 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin"></div></div>
+             ) : completedAuctions.length > 0 ? (
                  <table className="w-full text-left">
                      <thead className="bg-gray-50 border-b border-gray-100 text-xs font-bold text-gray-500 uppercase">
                          <tr>

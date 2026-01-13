@@ -125,13 +125,15 @@ export const Schemes: React.FC = () => {
 
   // Fetch Data
   useEffect(() => {
-    fetchSchemes();
-  }, []);
+    if (user?.id) {
+        fetchSchemes();
+    }
+  }, [user?.id]);
 
   const fetchSchemes = async () => {
       setIsLoading(true);
       try {
-        const data = await api.getSchemes();
+        const data = await api.getSchemes(user?.id);
         setSchemes(data);
       } catch (err) {
         console.error("Failed to fetch schemes", err);

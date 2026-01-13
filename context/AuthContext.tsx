@@ -41,65 +41,70 @@ export const AuthProvider = ({ children }: { children?: React.ReactNode }) => {
           console.warn("Profile fetch warning:", error.message);
       }
       
-      if (data) {
-        setProfile(data);
-      }
+      setProfile(data || null);
     } catch (e) {
       console.error("Error loading profile", e);
+      setProfile(null);
     }
   };
 
   useEffect(() => {
     let mounted = true;
 
-    const initializeAuth = async () => {
+    // 1. Handle initial session loading
+    const resolveInitialSession = async () => {
         try {
+            // Check session from local storage (fast)
             const { data: { session } } = await supabase.auth.getSession();
+            if (!mounted) return;
+
+            setSession(session);
+            setUser(session?.user ?? null);
             
-            if (mounted) {
-                setSession(session);
-                setUser(session?.user ?? null);
-                
-                if (session?.user) {
-                    await fetchProfile(session.user.id);
-                }
+            if (session?.user) {
+                // If user exists, fetch profile
+                await fetchProfile(session.user.id);
+            } else {
+                // IMPORTANT: If no session, ensure we stop loading immediately
+                setProfile(null);
             }
         } catch (error) {
             console.error("Auth initialization error:", error);
         } finally {
-            if (mounted) setIsLoading(false);
+            if (mounted) {
+                setIsLoading(false);
+            }
         }
     };
 
-    initializeAuth();
+    resolveInitialSession();
 
-    // Fallback timeout to prevent infinite loading if Supabase hangs
-    const timeoutId = setTimeout(() => {
-        if (mounted && isLoading) {
-            console.warn("Auth load timed out, forcing render.");
-            setIsLoading(false);
-        }
-    }, 5000);
-
+    // 2. Listen for subsequent auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
-        if (mounted) {
-            setSession(session);
-            setUser(session?.user ?? null);
-            if (session?.user) {
-                await fetchProfile(session.user.id);
-            } else {
-                setProfile(null);
-            }
-            setIsLoading(false);
+        if (!mounted) return;
+        
+        setSession(session);
+        setUser(session?.user ?? null);
+        
+        // Only fetch profile if we have a user and don't have a profile yet, or if session changed user
+        if (session?.user) {
+             // Simple check to avoid refetching if profile already matches session user
+             if (!profile || profile.id !== session.user.id) {
+                 await fetchProfile(session.user.id);
+             }
+        } else {
+            setProfile(null);
         }
+        
+        setIsLoading(false); 
     });
 
     return () => {
         mounted = false;
-        clearTimeout(timeoutId);
         subscription.unsubscribe();
     };
   }, []);
+
 
   const signOut = async () => {
     await supabase.auth.signOut();
@@ -110,8 +115,14 @@ export const AuthProvider = ({ children }: { children?: React.ReactNode }) => {
 
   const isReadOnly = profile?.verification_status !== 'APPROVED';
 
+  const refreshProfile = async () => {
+    if (user) {
+      await fetchProfile(user.id);
+    }
+  };
+
   return (
-    <AuthContext.Provider value={{ session, user, profile, isLoading, isReadOnly, signOut, refreshProfile: async () => { if(user) await fetchProfile(user.id); } }}>
+    <AuthContext.Provider value={{ session, user, profile, isLoading, isReadOnly, signOut, refreshProfile }}>
       {children}
     </AuthContext.Provider>
   );

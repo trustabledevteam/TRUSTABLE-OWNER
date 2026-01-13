@@ -1,5 +1,5 @@
 
-import { Scheme, Auction, Payout, Subscriber, ProxyBid } from '../types';
+import { Scheme, Auction, Payout, Subscriber, ProxyBid, AppSubscriber, SchemeJoinRequest } from '../types';
 import { supabase } from './supabaseClient';
 
 // --- Types ---
@@ -60,15 +60,18 @@ const calculateDynamicStatus = (scheme: any, transactions: any[]): 'Active' | 'L
 
 export const api = {
   // --- DASHBOARD ---
+  // Optimized: Uses Promise.all to fetch counts in parallel instead of sequentially
   getDashboardStats: async (): Promise<DashboardStats> => {
     try {
-      const { count: schemesCount } = await supabase.from('schemes').select('*', { count: 'exact', head: true });
-      const { count: subscribersCount } = await supabase.from('profiles').select('*', { count: 'exact', head: true });
+      const [schemesRes, subscribersRes] = await Promise.all([
+        supabase.from('schemes').select('*', { count: 'exact', head: true }),
+        supabase.from('profiles').select('*', { count: 'exact', head: true })
+      ]);
 
       return {
-        totalSchemes: schemesCount || 0,
+        totalSchemes: schemesRes.count || 0,
         monthlyProfit: 89000, 
-        totalSubscribers: subscribersCount || 0,
+        totalSubscribers: subscribersRes.count || 0,
         activeLeads: 40,
         salesData: [{ name: '2024', value: 90 }]
       };
@@ -79,15 +82,15 @@ export const api = {
   },
 
   // --- SCHEMES ---
-  getSchemes: async (): Promise<Scheme[]> => {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return [];
+  // Optimized: Removed supabase.auth.getUser() call. Accepts userId directly.
+  getSchemes: async (userId?: string): Promise<Scheme[]> => {
+    if (!userId) return [];
 
     try {
         const { data, error } = await supabase
           .from('schemes')
           .select('*, scheme_enrollments(count)') 
-          .eq('owner_id', user.id)
+          .eq('owner_id', userId)
           .order('created_at', { ascending: false });
 
         if (!error && data) {
@@ -189,23 +192,46 @@ export const api = {
           const { data: enrollments } = await supabase.from('scheme_enrollments').select(`id, ticket_number, status, profiles:subscriber_id (id, full_name, phone)`).eq('scheme_id', schemeId);
           if (!enrollments) return { scheme, subscribers: [] };
           const enrollmentIds = enrollments.map(e => e.id);
+          // Simplified transaction fetch to avoid complex joins if not needed immediately
           const { data: transactions } = await supabase.from('transactions').select('enrollment_id, amount, created_at, mode, payment_date').in('enrollment_id', enrollmentIds).eq('status', 'COMPLETED').order('created_at', { ascending: false });
           const subscribers = enrollments.map(e => ({ ...e, transactions: transactions?.filter(t => t.enrollment_id === e.id) || [] }));
           return { scheme, subscribers };
       } catch (err) { console.error("Collection fetch error:", err); return null; }
   },
 
+  // Updated to fetch wizard related fields
   getPendingPayouts: async (schemeId: string): Promise<Payout[]> => {
-    const { data, error } = await supabase.from('payouts').select(`id, amount, due_date, status, enrollment_id, auction_id, auctions ( auction_number ), scheme_enrollments ( profiles ( full_name ) )`).eq('auctions.scheme_id', schemeId).in('status', ['PENDING', 'DOCS_GENERATED', 'SIGNATURE_PENDING']).order('created_at', { ascending: true });
+    const { data, error } = await supabase.from('payouts').select(`
+        id, amount, due_date, status, enrollment_id, auction_id,
+        payout_mode, current_step, guarantor_name, guarantor_phone,
+        guarantor_email, guarantor_income, guarantor_address, foreman_esign_id, processed_at,
+        auctions ( auction_number ),
+        scheme_enrollments ( profiles ( full_name ) )
+    `).eq('auctions.scheme_id', schemeId).in('status', ['PENDING', 'DOCS_UPLOADED', 'SIGNATURE_PENDING', 'PAYMENT_PROCESSING']).order('created_at', { ascending: true });
     if (error) { console.error("Error fetching pending payouts:", error); return []; }
     return data.map((p: any) => ({
         id: p.id, amount: p.amount, due_date: p.due_date, status: p.status, enrollment_id: p.enrollment_id, auction_id: p.auction_id,
-        auctionNumber: p.auctions.auction_number, winnerName: p.scheme_enrollments.profiles.full_name
+        auctionNumber: p.auctions.auction_number, winnerName: p.scheme_enrollments.profiles.full_name,
+        // Map new fields
+        payout_mode: p.payout_mode,
+        current_step: p.current_step,
+        guarantor_name: p.guarantor_name,
+        guarantor_phone: p.guarantor_phone,
+        guarantor_email: p.guarantor_email,
+        guarantor_income: p.guarantor_income,
+        guarantor_address: p.guarantor_address,
+        foreman_esign_id: p.foreman_esign_id,
+        processed_at: p.processed_at,
     }));
   },
 
+  // Updated to select all wizard related payout fields
   getPayoutContext: async (payoutId: string) => {
-      const { data: payout, error: payoutError } = await supabase.from('payouts').select(`*, auction:auction_id(*), enrollment:enrollment_id(*, profile:subscriber_id(*))`).eq('id', payoutId).single();
+      const { data: payout, error: payoutError } = await supabase.from('payouts').select(`
+        *, 
+        auction:auction_id(*), 
+        enrollment:enrollment_id(*, profile:subscriber_id(*))
+      `).eq('id', payoutId).single();
       if(payoutError) throw payoutError;
       const { data: scheme, error: schemeError } = await supabase.from('schemes').select('*').eq('id', payout.auction.scheme_id).single();
       if(schemeError) throw schemeError;
@@ -222,17 +248,45 @@ export const api = {
         owner_id: userId, scheme_id: schemeId, enrollment_id: enrollmentId, payout_id: payoutId,
         document_type: docType, document_name: file.name, file_path: filePath,
         file_size: (file.size / 1024 / 1024).toFixed(2) + ' MB',
-        category: 'PAYOUT', status: 'UPLOADED'
+        category: 'PAYOUT', status: 'SUBMITTED' // Changed status to 'SUBMITTED' for admin review or later verification
     }]);
     if(insertError) throw insertError;
   },
 
-  finalizePayout: async (payoutId: string, transactionRef: string) => {
-      const { error } = await supabase.rpc('process_payout_completion', {
-          payout_id_to_process: payoutId,
-          transaction_reference: transactionRef
+  // NEW: Save Payout Wizard Progress (RPC call for core progress)
+  savePayoutWizardCoreProgress: async (payoutId: string, step: number, mode: 'ONLINE' | 'OFFLINE', guarantorData: any | null) => {
+      const { error } = await supabase.rpc('save_payout_progress', {
+          p_payout_id: payoutId,
+          p_step: step,
+          p_mode: mode,
+          p_guarantor_data: guarantorData,
       });
-      if(error) throw error;
+      if (error) {
+          console.error("Error saving payout core progress via RPC:", error);
+          throw error;
+      }
+  },
+
+  // NEW: Generic function to update specific fields in the payouts table
+  updatePayoutFields: async (payoutId: string, updates: Partial<Payout>) => {
+      const { error } = await supabase.from('payouts').update(updates).eq('id', payoutId);
+      if (error) {
+          console.error("Error updating payout fields directly:", error);
+          throw error;
+      }
+  },
+
+  // RENAMED AND UPDATED: Finalize Payout & Distribute Dividends
+  finalizePayoutAndDistributeDividends: async (payoutId: string, transactionRef: string | null, foremanEsignId: string | null) => {
+      const { error } = await supabase.rpc('finalize_payout_and_dividends', {
+          p_payout_id: payoutId,
+          p_transaction_reference: transactionRef,
+          p_foreman_esign_id: foremanEsignId
+      });
+      if (error) {
+          console.error("Error finalizing payout and distributing dividends:", error);
+          throw error;
+      }
   },
 
   getSubscribers: async (schemeId?: string): Promise<Subscriber[]> => {
@@ -281,14 +335,27 @@ export const api = {
   },
 
   downloadDocument: async (filePath: string) => {
-      const bucket = filePath.startsWith('subscribers/') ? 'documents' : filePath.startsWith('generated/') ? 'payout-documents' : 'scheme-verification-doc';
+      // Determine bucket dynamically
+      let bucket = 'scheme-verification-doc';
+      if (filePath.startsWith('subscribers/')) {
+          bucket = 'documents';
+      } else if (filePath.includes('payout-documents')) { // More specific check for payout documents
+          bucket = 'payout-documents';
+      }
+      
       const { data, error } = await supabase.storage.from(bucket).download(filePath);
       if (error) throw error;
       return data;
   },
 
   getPreviewUrl: async (filePath: string) => {
-      const bucket = filePath.startsWith('subscribers/') ? 'documents' : filePath.includes('payout') ? 'payout-documents' : 'scheme-verification-doc';
+      // Determine bucket dynamically
+      let bucket = 'scheme-verification-doc';
+      if (filePath.startsWith('subscribers/')) {
+          bucket = 'documents';
+      } else if (filePath.includes('payout-documents')) { // More specific check for payout documents
+          bucket = 'payout-documents';
+      }
       const { data } = await supabase.storage.from(bucket).createSignedUrl(filePath, 3600);
       if(!data) throw new Error("Could not create signed URL");
       return data.signedUrl;
@@ -366,5 +433,60 @@ export const api = {
       const { data, error } = await supabase.from('transactions').insert([{ enrollment_id: enrollmentId, amount, mode, type: 'COLLECTION', status: 'COMPLETED', payment_date: date || new Date().toISOString() }]).select().single();
       if(error) throw error;
       return data;
+  }
+};
+
+// NEW: API for handling Scheme Join Requests
+export const requestsApi = {
+  // 1. Fetch all pending requests with Subscriber & Scheme details
+  getPendingRequests: async (): Promise<SchemeJoinRequest[]> => {
+    const { data, error } = await supabase
+      .from('scheme_join_requests')
+      .select(`
+        id,
+        status,
+        requested_at,
+        app_subscribers!inner (
+          id,
+          full_name,
+          occupation,
+          city,
+          avatar_url,
+          phone,
+          email,
+          monthly_income
+        ),
+        schemes!inner (
+          id,
+          name,
+          chit_id
+        )
+      `)
+      .eq('status', 'PENDING')
+      .order('requested_at', { ascending: false });
+
+    if (error) {
+        console.error("Error fetching pending join requests:", error);
+        throw error;
+    }
+    return data as SchemeJoinRequest[];
+  },
+
+  // 2. Handle the Buttons
+  processRequest: async (requestId: string, action: 'ACCEPT' | 'DENY') => {
+    if (action === 'ACCEPT') {
+      // Calls the SQL RPC function we just created
+      const { error } = await supabase.rpc('accept_join_request', { 
+        p_request_id: requestId 
+      });
+      if (error) throw error;
+    } else {
+      // Direct update for rejection
+      const { error } = await supabase
+        .from('scheme_join_requests')
+        .update({ status: 'REJECTED', processed_at: new Date().toISOString() })
+        .eq('id', requestId);
+      if (error) throw error;
+    }
   }
 };

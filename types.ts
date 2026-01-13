@@ -82,8 +82,19 @@ export interface Payout {
   enrollment_id: string;
   amount: number;
   due_date: string;
-  status: 'PENDING' | 'DOCS_GENERATED' | 'SIGNATURE_PENDING' | 'PAYMENT_PROCESSING' | 'COMPLETED' | 'Processed';
+  status: 'PENDING' | 'DOCS_UPLOADED' | 'SIGNATURE_PENDING' | 'PAYMENT_PROCESSING' | 'COMPLETED' | 'CANCELLED';
   
+  // New fields for payout wizard and guarantor
+  payout_mode?: 'ONLINE' | 'OFFLINE';
+  current_step?: number;
+  guarantor_name?: string;
+  guarantor_phone?: string;
+  guarantor_email?: string;
+  guarantor_income?: number;
+  guarantor_address?: string;
+  foreman_esign_id?: string;
+  processed_at?: string; // Date of completion
+
   // Joined data for UI
   winnerName?: string;
   auctionNumber?: number;
@@ -104,4 +115,28 @@ export interface UserProfile {
   verification_status: 'PENDING' | 'SUBMITTED' | 'APPROVED' | 'REJECTED';
   full_name?: string;
   company_id?: string;
+}
+
+// New types for Join Requests
+export interface AppSubscriber {
+  id: string;
+  full_name: string;
+  occupation?: string;
+  city?: string;
+  avatar_url?: string;
+  phone?: string;
+  email?: string;
+  monthly_income?: number;
+}
+
+export interface SchemeJoinRequest {
+  id: string;
+  status: 'PENDING' | 'ACCEPTED' | 'REJECTED';
+  requested_at: string;
+  app_subscribers: AppSubscriber; // Joined data from app_subscribers table
+  schemes: {
+    id: string;
+    name: string;
+    chit_id: string;
+  }; // Joined data from schemes table
 }

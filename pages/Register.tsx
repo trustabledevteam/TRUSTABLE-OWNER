@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Upload, CheckCircle, ArrowRight, ArrowLeft, Clock, Loader2, AlertCircle } from 'lucide-react';
@@ -115,7 +116,11 @@ export const Register: React.FC<RegisterProps> = ({ onRegisterSuccess }) => {
       if (!userId) return;
       setLoading(true); setError(null);
       try {
-          const { error } = await supabase.from('profiles').update({
+          // Use Upsert to ensure profile exists. 
+          // If the trigger failed to create the profile on signup, this will create it.
+          const { error } = await supabase.from('profiles').upsert({
+              id: userId,
+              email: formData.email, // Ensure email is present
               full_name: formData.name,
               phone: formData.phone,
               dob: formData.dob || null,
@@ -123,8 +128,9 @@ export const Register: React.FC<RegisterProps> = ({ onRegisterSuccess }) => {
               city: formData.city,
               state: formData.state,
               pan_number: formData.pan,
-              aadhaar_number: formData.aadhaar
-          }).eq('id', userId);
+              aadhaar_number: formData.aadhaar,
+              role: 'OWNER' // Explicitly set role
+          });
 
           if (error) throw error;
           

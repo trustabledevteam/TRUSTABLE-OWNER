@@ -30,9 +30,14 @@ export const Documents: React.FC = () => {
   useEffect(() => {
       const fetchDocs = async () => {
           setLoading(true);
-          const data = await api.getAllDocuments(id);
-          setDocuments(data);
-          setLoading(false);
+          try {
+              const data = await api.getAllDocuments(id);
+              setDocuments(data);
+          } catch (error) {
+              console.error("Error fetching documents:", error);
+          } finally {
+              setLoading(false);
+          }
       };
       fetchDocs();
   }, [id]);

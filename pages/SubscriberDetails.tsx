@@ -66,9 +66,14 @@ export const SubscriberDetails: React.FC = () => {
       const fetchData = async () => {
           if (subscriberId) {
               setLoading(true);
-              const result = await api.getSubscriberDetails(subscriberId);
-              setData(result);
-              setLoading(false);
+              try {
+                  const result = await api.getSubscriberDetails(subscriberId);
+                  setData(result);
+              } catch (error) {
+                  console.error("Failed to load subscriber details:", error);
+              } finally {
+                  setLoading(false);
+              }
           }
       };
       fetchData();
@@ -167,7 +172,7 @@ export const SubscriberDetails: React.FC = () => {
     // b. Check currently unpaid installments for default
     for (let i = paidInstallments; i < currentCycleIndex; i++) {
         const dueDate = new Date(start_date);
-        dueDate.setMonth(dueDate.getMonth() + i);
+        dueDate.setMonth(start.getMonth() + i);
         dueDate.setDate(due_day);
         
         const defaultDate = new Date(dueDate);
@@ -233,7 +238,7 @@ export const SubscriberDetails: React.FC = () => {
     }
     
     let nextDueDateStr = 'Completed';
-    if (paidInstallments < duration_months) {
+    if (paidInstallments < (scheme?.duration_months || 0)) { // Use optional chaining
         const nextDate = new Date(start_date);
         nextDate.setMonth(nextDate.getMonth() + paidInstallments);
         nextDate.setDate(due_day);
@@ -254,7 +259,7 @@ export const SubscriberDetails: React.FC = () => {
 
   if (loading) return (
       <div className="flex flex-col items-center justify-center h-[80vh]">
-          <div className="w-12 h-12 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin mb-4"></div>
+          <div className="w-12 h-12 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin mb-4" role="status"></div>
           <p className="text-gray-500 text-sm font-medium">Loading profile...</p>
       </div>
   );

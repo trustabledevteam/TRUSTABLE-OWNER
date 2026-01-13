@@ -55,9 +55,14 @@ export const SchemeDetails: React.FC = () => {
        const loadScheme = async () => {
            if(id) {
                setIsLoading(true);
-               const data = await api.getSchemeDetails(id);
-               setScheme(data);
-               setIsLoading(false);
+               try {
+                   const data = await api.getSchemeDetails(id);
+                   setScheme(data);
+               } catch (error) {
+                   console.error("Failed to load scheme details:", error);
+               } finally {
+                   setIsLoading(false);
+               }
            }
        };
        loadScheme();

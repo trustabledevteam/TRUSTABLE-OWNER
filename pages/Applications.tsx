@@ -1,17 +1,10 @@
-import React, { useState } from 'react';
-import { Package, Check, X, FileText, Eye, PenTool, ArrowRight, Upload, ChevronLeft, Fingerprint, Download, CheckCircle, Clock } from 'lucide-react';
+
+import React, { useState, useEffect } from 'react';
+import { Package, Check, X, FileText, Eye, PenTool, ArrowRight, Download, CheckCircle, Loader2, ChevronLeft } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { Modal } from '../components/UI';
-
-interface Application {
-  id: string;
-  name: string;
-  role: string;
-  location: string;
-  schemeName: string;
-  schemeId: string;
-  avatarUrl: string;
-}
+import { requestsApi } from '../services/api';
+import { SchemeJoinRequest } from '../types';
 
 interface ESignDoc {
     id: string;
@@ -23,37 +16,8 @@ interface ESignDoc {
     type?: 'transfer' | 'general';
 }
 
-const mockApplications: Application[] = [
-  { 
-    id: '1', 
-    name: 'John silver', 
-    role: 'Software developer', 
-    location: 'Chennai',
-    schemeName: 'Lakshmi Gold Scheme - D1452',
-    schemeId: 'D1452',
-    avatarUrl: 'https://picsum.photos/seed/john/100/100'
-  },
-  { 
-    id: '2', 
-    name: 'Peter parker', 
-    role: 'Software developer', 
-    location: 'Chennai',
-    schemeName: 'Lakshmi Gold Scheme - D1452',
-    schemeId: 'D1452',
-    avatarUrl: 'https://picsum.photos/seed/peter/100/100'
-  }
-];
-
+// Mock E-Sign Docs (kept as placeholder until E-Sign module is fully backend-integrated)
 const mockESignDocs: ESignDoc[] = [
-    {
-        id: '101',
-        docName: 'Chit Agreement',
-        schemeName: 'Lakshmi Gold Scheme - D1452',
-        subscriberName: 'John Silver',
-        subscriberId: 'MEM005',
-        status: 'owner_pending',
-        type: 'general'
-    },
     {
         id: '102',
         docName: 'Transfer Request',
@@ -62,15 +26,6 @@ const mockESignDocs: ESignDoc[] = [
         subscriberId: 'MEM008',
         status: 'owner_pending',
         type: 'transfer'
-    },
-    {
-        id: '103',
-        docName: 'Form 1',
-        schemeName: 'Lakshmi Gold Scheme - D1452',
-        subscriberName: 'Peter Parker',
-        subscriberId: 'MEM008',
-        status: 'subscriber_pending',
-        type: 'general'
     }
 ];
 
@@ -78,6 +33,11 @@ export const Applications: React.FC = () => {
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<'applications' | 'esign'>('applications');
   
+  // Real Data State
+  const [applications, setApplications] = useState<SchemeJoinRequest[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [processingId, setProcessingId] = useState<string | null>(null);
+
   // Transfer Modal State
   const [transferModalOpen, setTransferModalOpen] = useState(false);
   const [transferStep, setTransferStep] = useState(1);
@@ -85,8 +45,40 @@ export const Applications: React.FC = () => {
   const [otpSent, setOtpSent] = useState(false);
   const [otpValue, setOtpValue] = useState('');
 
-  const handleViewProfile = (appId: string) => {
-    navigate(`/search/profile/${appId}`); 
+  // Fetch Real Requests
+  useEffect(() => {
+      fetchApplications();
+  }, []);
+
+  const fetchApplications = async () => {
+      setIsLoading(true);
+      try {
+          const data = await requestsApi.getPendingRequests();
+          setApplications(data);
+      } catch (error) {
+          console.error("Failed to load applications:", error);
+      } finally {
+          setIsLoading(false);
+      }
+  };
+
+  const handleAction = async (id: string, action: 'ACCEPT' | 'DENY') => {
+      setProcessingId(id);
+      try {
+          await requestsApi.processRequest(id, action);
+          // Optimistic update: remove from list immediately
+          setApplications(prev => prev.filter(app => app.id !== id));
+          // alert(`Request ${action === 'ACCEPT' ? 'Accepted' : 'Denied'}`); // Optional toast
+      } catch (error: any) {
+          console.error(`Error processing request:`, error);
+          alert(`Failed to ${action.toLowerCase()} request: ` + error.message);
+      } finally {
+          setProcessingId(null);
+      }
+  };
+
+  const handleViewProfile = (subscriberId: string) => {
+    navigate(`/search/profile/${subscriberId}`); 
   };
 
   const handleSignDocument = (doc: ESignDoc) => {
@@ -127,6 +119,7 @@ export const Applications: React.FC = () => {
       }
   };
 
+  // ... (Keep existing renderTransferStep logic unchanged)
   const renderTransferStep = () => {
       switch(transferStep) {
           case 1: // Old Subscriber Details (Read Only)
@@ -379,45 +372,63 @@ export const Applications: React.FC = () => {
       <div className="space-y-4">
         {activeTab === 'applications' && (
             <>
-                {mockApplications.map((app) => (
-                <div key={app.id} className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex flex-col md:flex-row items-center justify-between gap-6 hover:shadow-md transition-shadow">
-                    <div className="flex items-center gap-4 w-full cursor-pointer" onClick={() => handleViewProfile(app.id)}>
-                        <img 
-                        src={app.avatarUrl} 
-                        alt={app.name} 
-                        className="w-16 h-16 rounded-full object-cover border border-gray-100"
-                        />
-                        <div>
-                        <h3 className="text-lg font-bold text-gray-800">{app.name}</h3>
-                        <p className="text-sm text-blue-400 mb-1">
-                            {app.role} <span className="text-gray-400 font-normal">{app.location}</span>
-                        </p>
-                        <p className="text-sm font-medium text-gray-700">{app.schemeName}</p>
-                        </div>
+                {isLoading ? (
+                    <div className="flex justify-center p-12"><Loader2 className="animate-spin text-blue-500" /></div>
+                ) : applications.length === 0 ? (
+                    <div className="text-center py-12 border-2 border-dashed border-gray-200 rounded-xl">
+                        <Package className="mx-auto text-gray-300 mb-2" size={48} />
+                        <p className="text-gray-500">No pending applications found.</p>
                     </div>
+                ) : (
+                    applications.map((app) => (
+                        <div key={app.id} className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex flex-col md:flex-row items-center justify-between gap-6 hover:shadow-md transition-shadow">
+                            <div className="flex items-center gap-4 w-full cursor-pointer" onClick={() => handleViewProfile(app.app_subscribers.id)}>
+                                <div className="relative">
+                                    <img 
+                                        src={app.app_subscribers.avatar_url || `https://ui-avatars.com/api/?name=${app.app_subscribers.full_name}&background=random`} 
+                                        alt={app.app_subscribers.full_name} 
+                                        className="w-16 h-16 rounded-full object-cover border border-gray-100"
+                                    />
+                                </div>
+                                <div>
+                                    <h3 className="text-lg font-bold text-gray-800">{app.app_subscribers.full_name}</h3>
+                                    <p className="text-sm text-blue-400 mb-1 flex items-center gap-2">
+                                        {app.app_subscribers.occupation || 'Subscriber'} 
+                                        <span className="text-gray-400 font-normal border-l pl-2 border-gray-300">
+                                            {app.app_subscribers.city || 'Unknown Location'}
+                                        </span>
+                                    </p>
+                                    <p className="text-sm font-medium text-gray-700">
+                                        Applied for: <span className="font-bold text-blue-600">{app.schemes.name}</span>
+                                    </p>
+                                </div>
+                            </div>
 
-                    <div className="flex items-center gap-6 flex-shrink-0">
-                        <div className="flex flex-col items-center gap-1 group cursor-pointer">
-                        <button className="w-10 h-10 rounded-full bg-blue-500 hover:bg-blue-600 flex items-center justify-center text-white transition-colors shadow-sm">
-                            <Check size={20} strokeWidth={3} />
-                        </button>
-                        <span className="text-[10px] font-bold text-gray-600 uppercase">Accept</span>
+                            <div className="flex items-center gap-6 flex-shrink-0">
+                                <div className="flex flex-col items-center gap-1 group">
+                                    <button 
+                                        onClick={() => handleAction(app.id, 'ACCEPT')}
+                                        disabled={!!processingId}
+                                        className="w-10 h-10 rounded-full bg-blue-500 hover:bg-blue-600 flex items-center justify-center text-white transition-colors shadow-sm disabled:opacity-50"
+                                    >
+                                        {processingId === app.id ? <Loader2 size={18} className="animate-spin" /> : <Check size={20} strokeWidth={3} />}
+                                    </button>
+                                    <span className="text-[10px] font-bold text-gray-600 uppercase">Accept</span>
+                                </div>
+
+                                <div className="flex flex-col items-center gap-1 group">
+                                    <button 
+                                        onClick={() => handleAction(app.id, 'DENY')}
+                                        disabled={!!processingId}
+                                        className="w-10 h-10 rounded-full bg-black hover:bg-gray-800 flex items-center justify-center text-white transition-colors shadow-sm disabled:opacity-50"
+                                    >
+                                        <X size={20} strokeWidth={3} />
+                                    </button>
+                                    <span className="text-[10px] font-bold text-gray-600 uppercase">Deny</span>
+                                </div>
+                            </div>
                         </div>
-
-                        <div className="flex flex-col items-center gap-1 group cursor-pointer">
-                        <button className="w-10 h-10 rounded-full bg-black hover:bg-gray-800 flex items-center justify-center text-white transition-colors shadow-sm">
-                            <X size={20} strokeWidth={3} />
-                        </button>
-                        <span className="text-[10px] font-bold text-gray-600 uppercase">Deny</span>
-                        </div>
-                    </div>
-                </div>
-                ))}
-
-                {mockApplications.length === 0 && (
-                <div className="text-center py-12">
-                    <p className="text-gray-500">No pending applications</p>
-                </div>
+                    ))
                 )}
             </>
         )}
