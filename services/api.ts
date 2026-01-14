@@ -171,31 +171,31 @@ export const api = {
     if (error) throw error;
 
     // 2. Auto-Schedule First Auction
-    // Logic: If Start Date is Jan 28, and Auction Day is 5.
-    // Target is Jan 5. Jan 5 < Jan 28. So First Auction is Feb 5.
     try {
         const start = new Date(schemeData.startDate);
         const auctionDay = parseInt(schemeData.auctionDay);
         
-        // Initialize date to the auction day of the start month
-        let firstAuctionDate = new Date(start.getFullYear(), start.getMonth(), auctionDay);
-        // Set default time (e.g., 2 PM)
-        firstAuctionDate.setHours(14, 0, 0, 0);
+        // Ensure start date is valid before calculating
+        if (!isNaN(start.getTime()) && !isNaN(auctionDay)) {
+            let firstAuctionDate = new Date(start.getFullYear(), start.getMonth(), auctionDay);
+            // Set default time (e.g., 2 PM)
+            firstAuctionDate.setHours(14, 0, 0, 0);
 
-        // If the calculated auction date is earlier than the scheme start date, move to next month
-        if (firstAuctionDate.getTime() < start.getTime()) {
-            firstAuctionDate.setMonth(firstAuctionDate.getMonth() + 1);
+            // If the calculated auction date is earlier than the scheme start date, move to next month
+            if (firstAuctionDate.getTime() < start.getTime()) {
+                firstAuctionDate.setMonth(firstAuctionDate.getMonth() + 1);
+            }
+
+            await supabase.from('auctions').insert([{
+                scheme_id: newScheme.id,
+                auction_number: 1,
+                auction_date: firstAuctionDate.toISOString(),
+                status: 'UPCOMING'
+            }]);
         }
-
-        await supabase.from('auctions').insert([{
-            scheme_id: newScheme.id,
-            auction_number: 1,
-            auction_date: firstAuctionDate.toISOString(),
-            status: 'UPCOMING'
-        }]);
     } catch (auctionError) {
         console.error("Failed to auto-schedule first auction:", auctionError);
-        // Don't throw here, as scheme creation was successful. Just log it.
+        // Don't throw here, as scheme creation was successful.
     }
 
     return newScheme;

@@ -317,7 +317,7 @@ export const Dashboard: React.FC = () => {
              <div className="flex justify-between items-center mb-4">
                  <h4 className="text-sm font-medium text-gray-500">Sales Analytics</h4>
              </div>
-            <div className="h-[300px] w-full mt-4">
+            <div className="h-[300px] w-full mt-4 min-w-0">
               <ResponsiveContainer width="100%" height="100%">
                 <AreaChart data={stats?.salesData || []}>
                   <defs>

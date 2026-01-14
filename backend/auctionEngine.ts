@@ -216,22 +216,19 @@ export class AuctionEngine {
           due_date: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString() // 7 days later
       }]);
 
-      // 7. AUTO-SCHEDULE NEXT AUCTION
+      // 7. AUTO-SCHEDULE NEXT AUCTION (USING SQL RPC)
       try {
-          const currentAuctionDate = new Date(auction.auction_date);
-          // Add 1 month for the next cycle
-          const nextAuctionDate = new Date(currentAuctionDate);
-          nextAuctionDate.setMonth(nextAuctionDate.getMonth() + 1);
+          const { error } = await this.supabase.rpc('auto_schedule_next_auction', {
+              p_completed_auction_id: auctionId
+          });
           
-          await this.supabase.from('auctions').insert([{
-              scheme_id: auction.scheme_id,
-              auction_number: auction.auction_number + 1,
-              auction_date: nextAuctionDate.toISOString(),
-              status: 'UPCOMING'
-          }]);
-          console.log(`Auto-scheduled next auction for ${nextAuctionDate.toISOString()}`);
+          if (error) {
+              console.error("SQL Auto-Schedule Error:", error.message);
+          } else {
+              console.log(`Auto-scheduled next auction for Scheme ${auction.scheme_id} via DB function.`);
+          }
       } catch (scheduleError) {
-          console.error("Failed to auto-schedule next auction:", scheduleError);
+          console.error("Failed to call auto-schedule RPC:", scheduleError);
       }
 
       console.log(`Auction ${auctionId} Completed. Winner: ${winnerId}, Prize: ${prizeAmount}`);

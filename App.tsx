@@ -26,7 +26,7 @@ import { Notifications } from './pages/Notifications';
 import { Leads } from './pages/Leads';
 import { AdminVerify } from './pages/AdminVerify';
 import { PublicJoinScheme } from './pages/PublicJoinScheme'; // Import the new page
-import { X, Loader2, AlertTriangle, Lock } from 'lucide-react';
+import { X, Loader2, AlertTriangle, Lock, RefreshCw } from 'lucide-react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { supabase } from './services/supabaseClient';
 
@@ -141,19 +141,25 @@ const AuthLogin = () => {
 };
 
 const VerificationBanner = () => {
-    const { profile, isLoading } = useAuth();
+    const { profile, isLoading, refreshProfile } = useAuth();
+    const [isChecking, setIsChecking] = useState(false);
+
+    const handleCheckStatus = async () => {
+        if (isChecking) return;
+        setIsChecking(true);
+        // Minimum delay to show the user that action is happening
+        const minDelay = new Promise(resolve => setTimeout(resolve, 800));
+        await Promise.all([refreshProfile(), minDelay]);
+        setIsChecking(false);
+    };
     
     // This banner should only show if we have a loaded profile and its status is not 'APPROVED'.
-    // Return null if:
-    // 1. Auth state is still loading.
-    // 2. Profile data is not available.
-    // 3. Profile status is 'APPROVED'.
     if (isLoading || !profile || profile.verification_status === 'APPROVED') {
         return null;
     }
 
     return (
-        <div className="bg-yellow-50 border-b border-yellow-200 px-6 py-3 flex items-center justify-between">
+        <div className="bg-yellow-50 border-b border-yellow-200 px-6 py-3 flex items-center justify-between animate-in slide-in-from-top duration-300">
             <div className="flex items-center gap-3">
                 <AlertTriangle className="text-yellow-600" size={20} />
                 <div>
@@ -165,8 +171,18 @@ const VerificationBanner = () => {
                     </p>
                 </div>
             </div>
-            <div className="flex items-center gap-2 text-xs font-bold text-yellow-800 bg-yellow-100 px-3 py-1 rounded-full">
-                <Lock size={12} /> READ ONLY MODE
+            <div className="flex items-center gap-4">
+                <button 
+                    onClick={handleCheckStatus}
+                    disabled={isChecking}
+                    className="flex items-center gap-2 bg-white border border-yellow-300 text-yellow-800 px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-yellow-50 transition-all shadow-sm active:scale-95 disabled:opacity-70 disabled:cursor-not-allowed"
+                >
+                    {isChecking ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
+                    {isChecking ? 'Checking...' : 'Check Status'}
+                </button>
+                <div className="flex items-center gap-2 text-xs font-bold text-yellow-800 bg-yellow-100 px-3 py-1 rounded-full border border-yellow-200">
+                    <Lock size={12} /> READ ONLY MODE
+                </div>
             </div>
         </div>
     );
@@ -192,7 +208,7 @@ const ProtectedRoute = () => {
 const App = () => {
   return (
     <AuthProvider>
-        <HashRouter>
+        <HashRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
         <Routes>
             <Route path="/" element={<LandingPage />} />
             <Route path="/login" element={<AuthLogin />} />

@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import { 
   LineChart as LineChartIcon, Users, Gavel, Wallet, 
@@ -121,7 +122,7 @@ const SubscribersAnalytics = ({ onBack }: { onBack: () => void }) => (
     {/* Charts Row */}
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
       <Card title="Subscriber Status Distribution">
-        <div className="h-64">
+        <div className="h-64 w-full min-w-0">
           <ResponsiveContainer width="100%" height="100%">
             <PieChart>
               <Pie
@@ -145,7 +146,7 @@ const SubscribersAnalytics = ({ onBack }: { onBack: () => void }) => (
       </Card>
 
       <Card title="Subscriber Growth (Last 6 Months)">
-        <div className="h-64">
+        <div className="h-64 w-full min-w-0">
           <ResponsiveContainer width="100%" height="100%">
             <AreaChart data={schemeGrowthData}>
               <defs>
@@ -179,7 +180,7 @@ const AuctionAnalytics = ({ onBack }: { onBack: () => void }) => (
 
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
       <Card title="Discount Trend (Last 5 Auctions)">
-        <div className="h-64">
+        <div className="h-64 w-full min-w-0">
           <ResponsiveContainer width="100%" height="100%">
             <LineChart data={auctionDiscountData}>
               <CartesianGrid strokeDasharray="3 3" vertical={false} />
@@ -193,7 +194,7 @@ const AuctionAnalytics = ({ onBack }: { onBack: () => void }) => (
       </Card>
 
       <Card title="Bidding Mode: Proxy vs Online">
-        <div className="h-64">
+        <div className="h-64 w-full min-w-0">
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={bidTypeData}>
               <CartesianGrid strokeDasharray="3 3" vertical={false} />
@@ -222,7 +223,7 @@ const CashflowAnalytics = ({ onBack }: { onBack: () => void }) => (
     </div>
 
     <Card title="Cash Inflow vs Outflow Trend">
-        <div className="h-80">
+        <div className="h-80 w-full min-w-0">
           <ResponsiveContainer width="100%" height="100%">
             <AreaChart data={cashflowData}>
               <defs>
@@ -256,7 +257,7 @@ const CollectionAnalytics = ({ onBack }: { onBack: () => void }) => (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         <div className="lg:col-span-2">
             <Card title="Monthly Collections vs Due">
-                <div className="h-72">
+                <div className="h-72 w-full min-w-0">
                     <ResponsiveContainer width="100%" height="100%">
                         <BarChart data={[
                             { name: 'Jan', due: 100000, collected: 95000 },
@@ -277,7 +278,7 @@ const CollectionAnalytics = ({ onBack }: { onBack: () => void }) => (
         </div>
         <div className="lg:col-span-1">
             <Card title="Payment Modes">
-                <div className="h-72">
+                <div className="h-72 w-full min-w-0">
                     <ResponsiveContainer width="100%" height="100%">
                         <PieChart>
                             <Pie
@@ -364,7 +365,7 @@ const RiskAnalytics = ({ onBack }: { onBack: () => void }) => (
 
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         <Card title="Default Trend (Count)">
-            <div className="h-64">
+            <div className="h-64 w-full min-w-0">
                 <ResponsiveContainer width="100%" height="100%">
                     <BarChart data={defaultTrendData}>
                         <CartesianGrid strokeDasharray="3 3" vertical={false} />
@@ -378,7 +379,7 @@ const RiskAnalytics = ({ onBack }: { onBack: () => void }) => (
         </Card>
 
         <Card title="Risk Distribution: Prized vs Non-Prized">
-             <div className="h-64 flex items-center justify-center">
+             <div className="h-64 w-full min-w-0 flex items-center justify-center">
                  <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
                         <Pie
@@ -464,7 +465,7 @@ export const AnalyticsDashboard: React.FC = () => {
                    <h3 className="font-bold text-blue-500 text-lg mb-1">Analytics</h3>
                    <p className="text-gray-500 text-sm font-medium">Sales Analytics</p>
                 </div>
-                <div className="h-64">
+                <div className="h-64 w-full min-w-0">
                    <ResponsiveContainer width="100%" height="100%">
                       <AreaChart data={salesData}>
                          <defs>

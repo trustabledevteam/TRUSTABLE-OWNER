@@ -31,35 +31,83 @@ export const AuthProvider = ({ children }: { children?: React.ReactNode }) => {
 
   const fetchProfile = async (userId: string) => {
     try {
-      const { data, error } = await supabase
+      // Step 1: Fetch Profile Only (Avoid Joins to break complex RLS chains)
+      const { data: profileData, error: profileError } = await supabase
         .from('profiles')
-        .select(`*, companies:company_id (*)`)
+        .select('*')
         .eq('id', userId)
         .single();
       
-      if (error) {
-          console.warn("Profile fetch warning:", error.message);
+      if (profileError) {
+          console.warn("Profile fetch warning:", profileError.message);
+          // Don't throw immediately, allow UI to handle partial state or retry
       }
       
-      setProfile(data || null);
-    } catch (e) {
-      console.error("Error loading profile", e);
+      if (profileData) {
+          // Step 2: Fetch Company Separately if associated
+          let companyData = null;
+          if (profileData.company_id) {
+              const { data: comp } = await supabase
+                  .from('companies')
+                  .select('*')
+                  .eq('id', profileData.company_id)
+                  .single();
+              companyData = comp;
+          }
+          
+          // Combine manually
+          setProfile({ ...profileData, companies: companyData });
+      } else {
+          setProfile(null);
+      }
+    } catch (e: any) {
+      console.error("Error loading profile", e.message);
       setProfile(null);
     }
   };
 
   useEffect(() => {
     let mounted = true;
-    setIsLoading(true);
+    
+    const initializeAuth = async () => {
+      // Safety timeout: If auth takes longer than 5s, force stop loading
+      const timer = setTimeout(() => {
+          if (mounted) setIsLoading(false);
+      }, 5000);
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      try {
+        // 1. Check active session immediately
+        const { data: { session: initialSession } } = await supabase.auth.getSession();
+        
+        if (mounted) {
+          setSession(initialSession);
+          setUser(initialSession?.user ?? null);
+          
+          if (initialSession?.user) {
+            await fetchProfile(initialSession.user.id);
+          }
+        }
+      } catch (error) {
+        console.error("Auth initialization error:", error);
+      } finally {
+        clearTimeout(timer);
+        if (mounted) setIsLoading(false);
+      }
+    };
+
+    initializeAuth();
+
+    // 2. Listen for auth changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, newSession) => {
         if (!mounted) return;
 
-        setSession(session);
-        const currentUser = session?.user ?? null;
+        setSession(newSession);
+        const currentUser = newSession?.user ?? null;
         setUser(currentUser);
         
         if (currentUser) {
+            // Only fetch profile if we don't have it or user changed
+            // We also re-fetch if we are just switching back to focus to ensure fresh data
             await fetchProfile(currentUser.id);
         } else {
             setProfile(null);
@@ -73,6 +121,32 @@ export const AuthProvider = ({ children }: { children?: React.ReactNode }) => {
         subscription.unsubscribe();
     };
   }, []);
+
+  // 3. Listen for realtime profile changes (e.g. Admin Approval)
+  useEffect(() => {
+    if (!user?.id) return;
+
+    const channel = supabase
+      .channel(`profile-changes-${user.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'profiles',
+          filter: `id=eq.${user.id}`,
+        },
+        () => {
+          console.log('Profile updated via realtime, refreshing...');
+          fetchProfile(user.id);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [user?.id]);
 
 
   const signOut = async () => {
