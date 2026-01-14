@@ -1,5 +1,6 @@
 
 
+
 import React, { useState, useEffect, useMemo } from 'react';
 import { ChevronLeft, ChevronDown, ChevronUp, CheckCircle, Lock, User, AlertCircle, ShieldCheck, RefreshCw } from 'lucide-react';
 import { useParams, useNavigate } from 'react-router-dom';
@@ -92,8 +93,7 @@ export const SubscriberProfileView: React.FC<SubscriberProfileViewProps> = ({ su
                       full_name: propSubscriber.full_name,
                       email: propSubscriber.email || 'N/A',
                       phone: propSubscriber.phone || 'N/A',
-                      occupation: propSubscriber.occupation || 'N/A',
-                      city: propSubscriber.city || 'N/A',
+                      city: 'N/A',
                       // Mock other fields for completeness if they're not in AppSubscriber
                       dob: null, pan_number: null, aadhaar_number: null, address: null,
                       gender: null, monthly_income: propSubscriber.monthly_income || null,
@@ -347,7 +347,6 @@ export const SubscriberProfileView: React.FC<SubscriberProfileViewProps> = ({ su
                       )}
                   </h1>
                   <p className="text-sm text-blue-600 font-medium mt-0.5">{profile.email || '-'}</p>
-                  <p className="text-xs text-gray-400 mt-1">{profile.occupation || '-'}</p>
               </div>
           </div>
 
@@ -371,7 +370,7 @@ export const SubscriberProfileView: React.FC<SubscriberProfileViewProps> = ({ su
               {/* Row 2: Contact & Work */}
               <Field label="Email" value={profile.email} />
               <Field label="Alternate contact" value="-" />
-              <Field label="Occupation" value={profile.employment_status || profile.occupation} /> {/* Use profile.occupation from app_subscribers */}
+              <Field label="Occupation" value={profile.employment_status || '-'} />
               <Field label="Monthly Income" value={profile.monthly_income ? `₹${profile.monthly_income.toLocaleString()}` : '-'} />
 
               {/* Row 3: KYC & IDs */}

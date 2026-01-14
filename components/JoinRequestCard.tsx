@@ -1,6 +1,6 @@
 
 import React from 'react';
-import { Check, X, MapPin, Briefcase, Info, Loader2 } from 'lucide-react';
+import { Check, X, MapPin, Briefcase, Info, Loader2, Phone } from 'lucide-react';
 import { SchemeJoinRequest, AppSubscriber } from '../types'; // Import types
 
 interface JoinRequestCardProps {
@@ -20,7 +20,7 @@ export const JoinRequestCard: React.FC<JoinRequestCardProps> = ({ request, onAct
         {/* Avatar */}
         <div className="relative flex-shrink-0">
             <img 
-            src={sub.avatar_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(sub.full_name)}&background=random`} 
+            src={`https://ui-avatars.com/api/?name=${encodeURIComponent(sub.full_name)}&background=random`} 
             alt={sub.full_name}
             className="w-14 h-14 rounded-full border-2 border-white shadow-sm object-cover" 
             />
@@ -31,14 +31,9 @@ export const JoinRequestCard: React.FC<JoinRequestCardProps> = ({ request, onAct
         <div className="flex-1 min-w-0">
           <h3 className="font-bold text-gray-900 text-lg leading-tight truncate">{sub.full_name}</h3>
           <div className="flex items-center gap-3 mt-1 text-sm flex-wrap">
-            {sub.occupation && (
-                <span className="flex items-center gap-1 text-xs text-blue-600 font-semibold">
-                <Briefcase size={12} /> {sub.occupation}
-                </span>
-            )}
-            {sub.city && (
-                <span className="flex items-center gap-1 text-xs text-gray-400">
-                <MapPin size={12} /> {sub.city}
+            {sub.phone && (
+                <span className="flex items-center gap-1 text-xs text-gray-500">
+                <Phone size={12} /> {sub.phone}
                 </span>
             )}
           </div>

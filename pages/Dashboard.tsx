@@ -62,8 +62,13 @@ export const Dashboard: React.FC = () => {
   // 1. Fetch Stats
   useEffect(() => {
     const loadStats = async () => {
+      if (!user?.id) {
+        setIsLoading(false);
+        return;
+      }
+      setIsLoading(true);
       try {
-        const data = await api.getDashboardStats();
+        const data = await api.getDashboardStats(user.id);
         setStats(data);
       } catch (error) {
         console.error("Failed to load dashboard data", error);
@@ -72,34 +77,35 @@ export const Dashboard: React.FC = () => {
       }
     };
     loadStats();
-  }, []);
+  }, [user?.id]);
 
-  // 2. Reminders Logic: Fetch
-  const fetchReminders = async () => {
-    if (!user?.id) return;
-    setRemindersError(null);
-    try {
-      const { data, error } = await supabase
-        .from('reminders')
-        .select('*')
-        .eq('owner_id', user.id)
-        .order('created_at', { ascending: false });
-
-      if (error) throw error;
-
-      setReminders((data || []).map(mapSupabaseToReminder));
-    } catch (err: any) {
-      console.error('Error fetching reminders:', err.message || err);
-      setRemindersError('Could not load reminders.');
-    } finally {
-      setRemindersLoading(false);
-    }
-  };
-
-  // 3. Reminders Logic: Real-time Subscription
+  // 2. Reminders Logic: Real-time Subscription
   useEffect(() => {
-    if (!user?.id) return;
+    if (!user?.id) {
+      setRemindersLoading(false);
+      return;
+    }
     
+    const fetchReminders = async () => {
+      setRemindersError(null);
+      setRemindersLoading(true);
+      try {
+        const { data, error } = await supabase
+          .from('reminders')
+          .select('*')
+          .eq('owner_id', user.id)
+          .order('created_at', { ascending: false });
+
+        if (error) throw error;
+        setReminders((data || []).map(mapSupabaseToReminder));
+      } catch (err: any) {
+        console.error('Error fetching reminders:', err.message || err);
+        setRemindersError('Could not load reminders.');
+      } finally {
+        setRemindersLoading(false);
+      }
+    };
+
     fetchReminders();
 
     const channel = supabase

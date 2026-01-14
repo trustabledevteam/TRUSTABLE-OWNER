@@ -179,7 +179,7 @@ export class AuctionEngine {
 
       // 3. Calculate Financials
       // Get Scheme Details for Value & Commission
-      const { data: auction } = await this.supabase.from('auctions').select('scheme_id').eq('id', auctionId).single();
+      const { data: auction } = await this.supabase.from('auctions').select('*').eq('id', auctionId).single();
       const { data: scheme } = await this.supabase.from('schemes').select('chit_value, foreman_commission, members_count').eq('id', auction.scheme_id).single();
       
       if (!scheme) return;
@@ -215,6 +215,24 @@ export class AuctionEngine {
           status: 'PENDING',
           due_date: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString() // 7 days later
       }]);
+
+      // 7. AUTO-SCHEDULE NEXT AUCTION
+      try {
+          const currentAuctionDate = new Date(auction.auction_date);
+          // Add 1 month for the next cycle
+          const nextAuctionDate = new Date(currentAuctionDate);
+          nextAuctionDate.setMonth(nextAuctionDate.getMonth() + 1);
+          
+          await this.supabase.from('auctions').insert([{
+              scheme_id: auction.scheme_id,
+              auction_number: auction.auction_number + 1,
+              auction_date: nextAuctionDate.toISOString(),
+              status: 'UPCOMING'
+          }]);
+          console.log(`Auto-scheduled next auction for ${nextAuctionDate.toISOString()}`);
+      } catch (scheduleError) {
+          console.error("Failed to auto-schedule next auction:", scheduleError);
+      }
 
       console.log(`Auction ${auctionId} Completed. Winner: ${winnerId}, Prize: ${prizeAmount}`);
 

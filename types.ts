@@ -1,5 +1,4 @@
 
-
 export interface Scheme {
   id: string;
   name: string;
@@ -121,9 +120,6 @@ export interface UserProfile {
 export interface AppSubscriber {
   id: string;
   full_name: string;
-  occupation?: string;
-  city?: string;
-  avatar_url?: string;
   phone?: string;
   email?: string;
   monthly_income?: number;

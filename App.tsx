@@ -25,6 +25,7 @@ import { LandingPage } from './pages/LandingPage';
 import { Notifications } from './pages/Notifications';
 import { Leads } from './pages/Leads';
 import { AdminVerify } from './pages/AdminVerify';
+import { PublicJoinScheme } from './pages/PublicJoinScheme'; // Import the new page
 import { X, Loader2, AlertTriangle, Lock } from 'lucide-react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { supabase } from './services/supabaseClient';
@@ -196,6 +197,7 @@ const App = () => {
             <Route path="/" element={<LandingPage />} />
             <Route path="/login" element={<AuthLogin />} />
             <Route path="/register" element={<Register />} />
+            <Route path="/join/:schemeId" element={<PublicJoinScheme />} /> {/* New Public Route */}
             
             <Route element={<ProtectedRoute />}>
                 <Route path="/dashboard" element={<Dashboard />} />

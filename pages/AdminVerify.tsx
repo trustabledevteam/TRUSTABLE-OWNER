@@ -1,13 +1,13 @@
 
-
 import React, { useEffect, useState } from 'react';
 import { supabase } from '../services/supabaseClient';
 import { CheckCircle, XCircle, FileText, ExternalLink, Loader2, RefreshCw, Users } from 'lucide-react';
 import { Card, Button, Modal } from '../components/UI';
-import { api, requestsApi } from '../services/api'; // Import requestsApi
-import { JoinRequestCard } from '../components/JoinRequestCard'; // Import new component
-import { AppSubscriber, SchemeJoinRequest } from '../types'; // Import types
-import { SubscriberProfileView } from './SubscriberProfileView'; // Import SubscriberProfileView
+import { api } from '../services/api'; 
+import { JoinRequestCard } from '../components/JoinRequestCard';
+import { AppSubscriber, SchemeJoinRequest } from '../types';
+import { SubscriberProfileView } from './SubscriberProfileView';
+import { useAuth } from '../context/AuthContext';
 
 interface VerificationRequest {
     id: string;
@@ -26,66 +26,55 @@ interface VerificationRequest {
 }
 
 export const AdminVerify: React.FC = () => {
-    const [activeTab, setActiveTab] = useState<'company_verify' | 'join_requests'>('company_verify'); // New state for tabs
+    const { user } = useAuth();
+    const [activeTab, setActiveTab] = useState<'company_verify' | 'join_requests'>('company_verify');
     const [companyVerificationRequests, setCompanyVerificationRequests] = useState<VerificationRequest[]>([]);
-    const [pendingJoinRequests, setPendingJoinRequests] = useState<SchemeJoinRequest[]>([]); // New state for join requests
+    const [pendingJoinRequests, setPendingJoinRequests] = useState<SchemeJoinRequest[]>([]);
     const [loadingCompanyVerify, setLoadingCompanyVerify] = useState(true);
     const [loadingJoinRequests, setLoadingJoinRequests] = useState(true);
-    const [actionLoading, setActionLoading] = useState<string | null>(null); // For company verify
-    const [joinRequestActionLoading, setJoinRequestActionLoading] = useState<string | null>(null); // For join requests
-
-    // State for viewing subscriber profile in modal
+    const [actionLoading, setActionLoading] = useState<string | null>(null);
+    const [joinRequestActionLoading, setJoinRequestActionLoading] = useState<string | null>(null);
     const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
     const [selectedSubscriberForReview, setSelectedSubscriberForReview] = useState<AppSubscriber | null>(null);
 
     const fetchCompanyVerificationRequests = async () => {
         setLoadingCompanyVerify(true);
         try {
-            // Fetch profiles with 'SUBMITTED' status
             const { data: profiles, error } = await supabase
                 .from('profiles')
-                .select(`
-                    id, full_name, email, verification_status,
-                    companies:company_id (company_name, cin_number)
-                `)
+                .select(`id, full_name, email, verification_status, companies:company_id (company_name, cin_number)`)
                 .eq('verification_status', 'SUBMITTED');
-
             if (error) throw error;
-
-            // Fetch documents for these profiles
+            
             const profileIds = profiles.map(p => p.id);
-            const { data: documents } = await supabase
-                .from('documents')
-                .select('*')
-                .in('owner_id', profileIds);
+            const { data: documents } = await supabase.from('documents').select('*').in('owner_id', profileIds);
 
             const merged: VerificationRequest[] = profiles.map((p: any) => ({
                 id: p.id,
                 full_name: p.full_name,
                 email: p.email,
                 verification_status: p.verification_status,
-                // Handle array result from join if company_id is unique
                 companies: Array.isArray(p.companies) ? p.companies[0] : p.companies,
                 docs: documents?.filter(d => d.owner_id === p.id) || []
             }));
 
             setCompanyVerificationRequests(merged);
-        } catch (error) {
-            console.error("Error fetching company verification requests:", error);
+        } catch (error: any) {
+            console.error("Error fetching company verification requests:", error.message);
             alert("Failed to load company verification requests.");
         } finally {
             setLoadingCompanyVerify(false);
         }
     };
 
-    const fetchPendingJoinRequests = async () => {
+    const fetchPendingJoinRequests = async (userId: string) => {
         setLoadingJoinRequests(true);
         try {
-            const data = await requestsApi.getPendingRequests();
+            const data = await api.getPendingRequests(userId);
             setPendingJoinRequests(data);
-        } catch (error) {
-            console.error("Error fetching pending join requests:", error);
-            alert("Failed to load join requests.");
+        } catch (error: any) {
+            console.error("Error fetching pending join requests:", error.message);
+            alert("Failed to load join requests: " + error.message);
         } finally {
             setLoadingJoinRequests(false);
         }
@@ -93,22 +82,22 @@ export const AdminVerify: React.FC = () => {
 
     useEffect(() => {
         fetchCompanyVerificationRequests();
-        fetchPendingJoinRequests(); // Fetch join requests on mount
-    }, []);
+        if (user?.id) {
+            fetchPendingJoinRequests(user.id);
+        } else {
+            setLoadingJoinRequests(false);
+        }
+    }, [user?.id]);
 
     const handleApproveCompany = async (id: string) => {
         setActionLoading(id);
         try {
-            const { error } = await supabase
-                .from('profiles')
-                .update({ verification_status: 'APPROVED' })
-                .eq('id', id);
-            
+            const { error } = await supabase.from('profiles').update({ verification_status: 'APPROVED' }).eq('id', id);
             if (error) throw error;
             setCompanyVerificationRequests(prev => prev.filter(r => r.id !== id));
             alert("Company Account Approved Successfully!");
-        } catch (error) {
-            console.error("Failed to approve company:", error);
+        } catch (error: any) {
+            console.error("Failed to approve company:", error.message);
             alert("Failed to approve company.");
         } finally {
             setActionLoading(null);
@@ -119,16 +108,12 @@ export const AdminVerify: React.FC = () => {
         if (!confirm("Are you sure you want to reject this company application?")) return;
         setActionLoading(id);
         try {
-            const { error } = await supabase
-                .from('profiles')
-                .update({ verification_status: 'REJECTED' })
-                .eq('id', id);
-            
+            const { error } = await supabase.from('profiles').update({ verification_status: 'REJECTED' }).eq('id', id);
             if (error) throw error;
             setCompanyVerificationRequests(prev => prev.filter(r => r.id !== id));
             alert("Company Account Rejected Successfully!");
-        } catch (error) {
-            console.error("Failed to reject company:", error);
+        } catch (error: any) {
+            console.error("Failed to reject company:", error.message);
             alert("Failed to reject company.");
         } finally {
             setActionLoading(null);
@@ -140,16 +125,15 @@ export const AdminVerify: React.FC = () => {
         return data.publicUrl;
     };
 
-    // --- Join Request Handlers ---
     const handleJoinRequestAction = async (id: string, action: 'ACCEPT' | 'DENY') => {
         setJoinRequestActionLoading(id);
         try {
-            await requestsApi.processRequest(id, action);
-            setPendingJoinRequests(prev => prev.filter(r => r.id !== id)); // Optimistic UI update
+            await api.processRequest(id, action);
+            setPendingJoinRequests(prev => prev.filter(r => r.id !== id));
             alert(`Join request ${action === 'ACCEPT' ? 'accepted' : 'denied'} successfully!`);
-        } catch (error) {
-            console.error(`Error processing join request ${action}:`, error);
-            alert(`Failed to ${action.toLowerCase()} join request.`);
+        } catch (error: any) {
+            console.error(`Error processing join request ${action}:`, error.message);
+            alert(`Failed to ${action.toLowerCase()} join request: ` + error.message);
         } finally {
             setJoinRequestActionLoading(null);
         }
@@ -162,7 +146,7 @@ export const AdminVerify: React.FC = () => {
 
     const handleRefreshAll = () => {
         fetchCompanyVerificationRequests();
-        fetchPendingJoinRequests();
+        if (user?.id) fetchPendingJoinRequests(user.id);
     };
 
     return (
@@ -174,7 +158,6 @@ export const AdminVerify: React.FC = () => {
                 </Button>
             </div>
 
-            {/* Tabs for different verification types */}
             <div className="flex space-x-8 border-b border-gray-200 mb-6">
                 <button 
                     onClick={() => setActiveTab('company_verify')}
@@ -195,7 +178,6 @@ export const AdminVerify: React.FC = () => {
                 </button>
             </div>
 
-            {/* Content based on active tab */}
             {activeTab === 'company_verify' && (
                 <>
                     {loadingCompanyVerify ? (
@@ -298,7 +280,6 @@ export const AdminVerify: React.FC = () => {
                 </>
             )}
 
-            {/* Modal to show Subscriber Profile */}
             <Modal 
                 isOpen={isProfileModalOpen} 
                 onClose={() => setIsProfileModalOpen(false)}

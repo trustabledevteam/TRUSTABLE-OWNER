@@ -80,7 +80,8 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
 
   const handleLogout = async () => {
     await signOut();
-    navigate('/', { replace: true });
+    // Navigation is now handled by the ProtectedRoute component reacting to the session state change.
+    // navigate('/', { replace: true });
   };
   
   const userInitial = profile?.full_name ? profile.full_name.charAt(0).toUpperCase() : 'A';

@@ -50,53 +50,22 @@ export const AuthProvider = ({ children }: { children?: React.ReactNode }) => {
 
   useEffect(() => {
     let mounted = true;
+    setIsLoading(true);
 
-    // 1. Handle initial session loading
-    const resolveInitialSession = async () => {
-        try {
-            // Check session from local storage (fast)
-            const { data: { session } } = await supabase.auth.getSession();
-            if (!mounted) return;
-
-            setSession(session);
-            setUser(session?.user ?? null);
-            
-            if (session?.user) {
-                // If user exists, fetch profile
-                await fetchProfile(session.user.id);
-            } else {
-                // IMPORTANT: If no session, ensure we stop loading immediately
-                setProfile(null);
-            }
-        } catch (error) {
-            console.error("Auth initialization error:", error);
-        } finally {
-            if (mounted) {
-                setIsLoading(false);
-            }
-        }
-    };
-
-    resolveInitialSession();
-
-    // 2. Listen for subsequent auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
         if (!mounted) return;
-        
+
         setSession(session);
-        setUser(session?.user ?? null);
+        const currentUser = session?.user ?? null;
+        setUser(currentUser);
         
-        // Only fetch profile if we have a user and don't have a profile yet, or if session changed user
-        if (session?.user) {
-             // Simple check to avoid refetching if profile already matches session user
-             if (!profile || profile.id !== session.user.id) {
-                 await fetchProfile(session.user.id);
-             }
+        if (currentUser) {
+            await fetchProfile(currentUser.id);
         } else {
             setProfile(null);
         }
         
-        setIsLoading(false); 
+        setIsLoading(false);
     });
 
     return () => {

@@ -15,8 +15,10 @@ export interface DashboardStats {
 const calculateDynamicStatus = (scheme: any, transactions: any[]): 'Active' | 'Late' | 'Default' => {
     if (!scheme || !scheme.start_date) return 'Active';
 
-    const today = new Date();
     const start = new Date(scheme.start_date);
+    if (isNaN(start.getTime())) return 'Active';
+
+    const today = new Date();
     const dueDay = scheme.due_day || 5;
     const monthlyDue = scheme.monthly_due || 0;
     const gracePeriod = scheme.grace_period_days || 3;
@@ -60,18 +62,28 @@ const calculateDynamicStatus = (scheme: any, transactions: any[]): 'Active' | 'L
 
 export const api = {
   // --- DASHBOARD ---
-  // Optimized: Uses Promise.all to fetch counts in parallel instead of sequentially
-  getDashboardStats: async (): Promise<DashboardStats> => {
+  getDashboardStats: async (userId: string): Promise<DashboardStats> => {
     try {
-      const [schemesRes, subscribersRes] = await Promise.all([
-        supabase.from('schemes').select('*', { count: 'exact', head: true }),
-        supabase.from('profiles').select('*', { count: 'exact', head: true })
+      if (!userId) {
+          return { totalSchemes: 0, monthlyProfit: 0, totalSubscribers: 0, activeLeads: 0, salesData: [] };
+      }
+
+      const [schemesRes, enrollmentsRes] = await Promise.all([
+        // 1. Count Schemes owned by ME
+        supabase.from('schemes')
+            .select('*', { count: 'exact', head: true })
+            .eq('owner_id', userId),
+        
+        // 2. Count Enrollments where the Scheme is owned by ME
+        supabase.from('scheme_enrollments')
+            .select('id, schemes!inner(owner_id)', { count: 'exact', head: true })
+            .eq('schemes.owner_id', userId)
       ]);
 
       return {
         totalSchemes: schemesRes.count || 0,
         monthlyProfit: 89000, 
-        totalSubscribers: subscribersRes.count || 0,
+        totalSubscribers: enrollmentsRes.count || 0, 
         activeLeads: 40,
         salesData: [{ name: '2024', value: 90 }]
       };
@@ -82,7 +94,6 @@ export const api = {
   },
 
   // --- SCHEMES ---
-  // Optimized: Removed supabase.auth.getUser() call. Accepts userId directly.
   getSchemes: async (userId?: string): Promise<Scheme[]> => {
     if (!userId) return [];
 
@@ -95,13 +106,14 @@ export const api = {
 
         if (!error && data) {
             return data.map((s: any) => {
-              // Calculate endDate
               let endDate = '-';
               if (s.start_date && s.duration_months) {
                   const start = new Date(s.start_date);
-                  const end = new Date(start);
-                  end.setMonth(start.getMonth() + s.duration_months);
-                  endDate = end.toLocaleDateString('en-GB');
+                  if (!isNaN(start.getTime())) {
+                      const end = new Date(start);
+                      end.setMonth(start.getMonth() + s.duration_months);
+                      endDate = end.toLocaleDateString('en-GB');
+                  }
               }
 
               return {
@@ -128,7 +140,8 @@ export const api = {
   },
 
   createScheme: async (schemeData: any, userId: string) => {
-    const { data, error } = await supabase
+    // 1. Create the Scheme
+    const { data: newScheme, error } = await supabase
       .from('schemes')
       .insert([{
         owner_id: userId,
@@ -156,7 +169,36 @@ export const api = {
       .single();
 
     if (error) throw error;
-    return data;
+
+    // 2. Auto-Schedule First Auction
+    // Logic: If Start Date is Jan 28, and Auction Day is 5.
+    // Target is Jan 5. Jan 5 < Jan 28. So First Auction is Feb 5.
+    try {
+        const start = new Date(schemeData.startDate);
+        const auctionDay = parseInt(schemeData.auctionDay);
+        
+        // Initialize date to the auction day of the start month
+        let firstAuctionDate = new Date(start.getFullYear(), start.getMonth(), auctionDay);
+        // Set default time (e.g., 2 PM)
+        firstAuctionDate.setHours(14, 0, 0, 0);
+
+        // If the calculated auction date is earlier than the scheme start date, move to next month
+        if (firstAuctionDate.getTime() < start.getTime()) {
+            firstAuctionDate.setMonth(firstAuctionDate.getMonth() + 1);
+        }
+
+        await supabase.from('auctions').insert([{
+            scheme_id: newScheme.id,
+            auction_number: 1,
+            auction_date: firstAuctionDate.toISOString(),
+            status: 'UPCOMING'
+        }]);
+    } catch (auctionError) {
+        console.error("Failed to auto-schedule first auction:", auctionError);
+        // Don't throw here, as scheme creation was successful. Just log it.
+    }
+
+    return newScheme;
   },
 
   uploadSchemeDoc: async (schemeId: string, userId: string, file: File, docType: string) => {
@@ -192,14 +234,12 @@ export const api = {
           const { data: enrollments } = await supabase.from('scheme_enrollments').select(`id, ticket_number, status, profiles:subscriber_id (id, full_name, phone)`).eq('scheme_id', schemeId);
           if (!enrollments) return { scheme, subscribers: [] };
           const enrollmentIds = enrollments.map(e => e.id);
-          // Simplified transaction fetch to avoid complex joins if not needed immediately
           const { data: transactions } = await supabase.from('transactions').select('enrollment_id, amount, created_at, mode, payment_date').in('enrollment_id', enrollmentIds).eq('status', 'COMPLETED').order('created_at', { ascending: false });
           const subscribers = enrollments.map(e => ({ ...e, transactions: transactions?.filter(t => t.enrollment_id === e.id) || [] }));
           return { scheme, subscribers };
       } catch (err) { console.error("Collection fetch error:", err); return null; }
   },
 
-  // Updated to fetch wizard related fields
   getPendingPayouts: async (schemeId: string): Promise<Payout[]> => {
     const { data, error } = await supabase.from('payouts').select(`
         id, amount, due_date, status, enrollment_id, auction_id,
@@ -212,7 +252,6 @@ export const api = {
     return data.map((p: any) => ({
         id: p.id, amount: p.amount, due_date: p.due_date, status: p.status, enrollment_id: p.enrollment_id, auction_id: p.auction_id,
         auctionNumber: p.auctions.auction_number, winnerName: p.scheme_enrollments.profiles.full_name,
-        // Map new fields
         payout_mode: p.payout_mode,
         current_step: p.current_step,
         guarantor_name: p.guarantor_name,
@@ -225,7 +264,6 @@ export const api = {
     }));
   },
 
-  // Updated to select all wizard related payout fields
   getPayoutContext: async (payoutId: string) => {
       const { data: payout, error: payoutError } = await supabase.from('payouts').select(`
         *, 
@@ -248,12 +286,11 @@ export const api = {
         owner_id: userId, scheme_id: schemeId, enrollment_id: enrollmentId, payout_id: payoutId,
         document_type: docType, document_name: file.name, file_path: filePath,
         file_size: (file.size / 1024 / 1024).toFixed(2) + ' MB',
-        category: 'PAYOUT', status: 'SUBMITTED' // Changed status to 'SUBMITTED' for admin review or later verification
+        category: 'PAYOUT', status: 'SUBMITTED'
     }]);
     if(insertError) throw insertError;
   },
 
-  // NEW: Save Payout Wizard Progress (RPC call for core progress)
   savePayoutWizardCoreProgress: async (payoutId: string, step: number, mode: 'ONLINE' | 'OFFLINE', guarantorData: any | null) => {
       const { error } = await supabase.rpc('save_payout_progress', {
           p_payout_id: payoutId,
@@ -267,7 +304,6 @@ export const api = {
       }
   },
 
-  // NEW: Generic function to update specific fields in the payouts table
   updatePayoutFields: async (payoutId: string, updates: Partial<Payout>) => {
       const { error } = await supabase.from('payouts').update(updates).eq('id', payoutId);
       if (error) {
@@ -276,7 +312,6 @@ export const api = {
       }
   },
 
-  // RENAMED AND UPDATED: Finalize Payout & Distribute Dividends
   finalizePayoutAndDistributeDividends: async (payoutId: string, transactionRef: string | null, foremanEsignId: string | null) => {
       const { error } = await supabase.rpc('finalize_payout_and_dividends', {
           p_payout_id: payoutId,
@@ -297,14 +332,46 @@ export const api = {
       if (error || !data) return [];
       const enrollmentIds = data.map(e => e.id);
       const { data: transactions } = await supabase.from('transactions').select('enrollment_id, created_at, amount, payment_date').in('enrollment_id', enrollmentIds).eq('status', 'COMPLETED'); 
-      return data.map((row: any) => ({
-          id: row.id, schemeId: row.scheme_id, name: row.profiles?.full_name || 'Unknown', phone: row.profiles?.phone, email: row.profiles?.email,
-          joinDate: new Date(row.created_at).toISOString().split('T')[0], 
-          paymentsMade: (transactions?.filter(t => t.enrollment_id === row.id) || []).length, totalInstallments: row.schemes?.duration_months || 0, 
-          lastPaymentDate: transactions && transactions.length > 0 ? new Date(Math.max(...(transactions.filter((t:any) => t.enrollment_id === row.id).map((t:any) => new Date(t.payment_date || t.created_at).getTime())))).toISOString().split('T')[0] : 'N/A',
-          status: calculateDynamicStatus(row.schemes, transactions?.filter(t => t.enrollment_id === row.id) || []), occupation: 'Unknown', location: 'Unknown',
-          type: row.enrollment_type === 'OFFLINE' || row.profiles?.is_proxy ? 'Offline' : 'Online'
-      }));
+      
+      return data.map((row: any) => {
+          // Calculate Last Payment Date Safely
+          let lastPaymentDate = 'N/A';
+          const subTransactions = transactions?.filter(t => t.enrollment_id === row.id) || [];
+          
+          if (subTransactions.length > 0) {
+              const timestamps = subTransactions.map((t: any) => {
+                  const d = new Date(t.payment_date || t.created_at);
+                  return !isNaN(d.getTime()) ? d.getTime() : 0;
+              });
+              const maxTime = Math.max(0, ...timestamps);
+              if (maxTime > 0) {
+                  lastPaymentDate = new Date(maxTime).toISOString().split('T')[0];
+              }
+          }
+
+          // Safe Join Date
+          let joinDate = '-';
+          const createdAt = new Date(row.created_at);
+          if (!isNaN(createdAt.getTime())) {
+              joinDate = createdAt.toISOString().split('T')[0];
+          }
+
+          return {
+              id: row.id, 
+              schemeId: row.scheme_id, 
+              name: row.profiles?.full_name || 'Unknown', 
+              phone: row.profiles?.phone, 
+              email: row.profiles?.email,
+              joinDate: joinDate,
+              paymentsMade: subTransactions.length, 
+              totalInstallments: row.schemes?.duration_months || 0, 
+              lastPaymentDate: lastPaymentDate,
+              status: calculateDynamicStatus(row.schemes, subTransactions), 
+              occupation: 'Unknown', 
+              location: 'Unknown',
+              type: row.enrollment_type === 'OFFLINE' || row.profiles?.is_proxy ? 'Offline' : 'Online'
+          };
+      });
     } catch(e) { console.error(e); return []; }
   },
 
@@ -335,11 +402,10 @@ export const api = {
   },
 
   downloadDocument: async (filePath: string) => {
-      // Determine bucket dynamically
       let bucket = 'scheme-verification-doc';
       if (filePath.startsWith('subscribers/')) {
           bucket = 'documents';
-      } else if (filePath.includes('payout-documents')) { // More specific check for payout documents
+      } else if (filePath.includes('payout-documents')) {
           bucket = 'payout-documents';
       }
       
@@ -349,11 +415,10 @@ export const api = {
   },
 
   getPreviewUrl: async (filePath: string) => {
-      // Determine bucket dynamically
       let bucket = 'scheme-verification-doc';
       if (filePath.startsWith('subscribers/')) {
           bucket = 'documents';
-      } else if (filePath.includes('payout-documents')) { // More specific check for payout documents
+      } else if (filePath.includes('payout-documents')) {
           bucket = 'payout-documents';
       }
       const { data } = await supabase.storage.from(bucket).createSignedUrl(filePath, 3600);
@@ -433,60 +498,127 @@ export const api = {
       const { data, error } = await supabase.from('transactions').insert([{ enrollment_id: enrollmentId, amount, mode, type: 'COLLECTION', status: 'COMPLETED', payment_date: date || new Date().toISOString() }]).select().single();
       if(error) throw error;
       return data;
-  }
-};
+  },
 
-// NEW: API for handling Scheme Join Requests
-export const requestsApi = {
-  // 1. Fetch all pending requests with Subscriber & Scheme details
-  getPendingRequests: async (): Promise<SchemeJoinRequest[]> => {
+  // --- NEW: REQUESTS API ---
+  
+  // 1. Fetch all pending requests from scheme_join_requests table (For Owner)
+  getPendingRequests: async (userId: string): Promise<SchemeJoinRequest[]> => {
+    if (!userId) return [];
+
     const { data, error } = await supabase
       .from('scheme_join_requests')
       .select(`
         id,
         status,
         requested_at,
-        app_subscribers!inner (
-          id,
-          full_name,
-          occupation,
-          city,
-          avatar_url,
-          phone,
-          email,
-          monthly_income
-        ),
-        schemes!inner (
-          id,
-          name,
-          chit_id
-        )
+        schemes!inner(id, name, chit_id, owner_id),
+        app_subscribers!inner(id, full_name, phone, email)
       `)
       .eq('status', 'PENDING')
+      .eq('schemes.owner_id', userId)
       .order('requested_at', { ascending: false });
 
     if (error) {
         console.error("Error fetching pending join requests:", error);
         throw error;
     }
-    return data as SchemeJoinRequest[];
+
+    // Transform to match UI SchemeJoinRequest type
+    return data.map((req: any) => ({
+        id: req.id,
+        status: req.status,
+        requested_at: req.requested_at,
+        app_subscribers: req.app_subscribers,
+        schemes: req.schemes
+    }));
   },
 
-  // 2. Handle the Buttons
+  // 2. Handle the Buttons with new RPC (For Owner)
   processRequest: async (requestId: string, action: 'ACCEPT' | 'DENY') => {
     if (action === 'ACCEPT') {
-      // Calls the SQL RPC function we just created
+      // Calls the new SQL RPC function 'accept_join_request'
       const { error } = await supabase.rpc('accept_join_request', { 
         p_request_id: requestId 
       });
       if (error) throw error;
     } else {
-      // Direct update for rejection
+      // Direct update for rejection on 'scheme_join_requests' table
       const { error } = await supabase
         .from('scheme_join_requests')
         .update({ status: 'REJECTED', processed_at: new Date().toISOString() })
         .eq('id', requestId);
       if (error) throw error;
     }
+  },
+
+  // --- ONLINE SUBSCRIBER ONBOARDING ---
+  
+  // 3. Apply for Scheme (Public/Subscriber Side)
+  applyForScheme: async (schemeId: string, form: any) => {
+      // A. Check if profile exists by phone, else create one
+      let { data: profile } = await supabase.from('profiles').select('id').eq('phone', form.phone).single();
+      
+      if (!profile) {
+          const profileData = {
+              id: crypto.randomUUID(),
+              full_name: form.name,
+              phone: form.phone,
+              email: form.email,
+              pan_number: form.pan,
+              aadhaar_number: form.aadhaar,
+              occupation: form.occupation,
+              monthly_income: parseFloat(form.income),
+              role: 'SUBSCRIBER',
+              verification_status: 'PENDING'
+          };
+          
+          const { data: newProfile, error: profileError } = await supabase
+              .from('profiles')
+              .insert([profileData])
+              .select()
+              .single();
+              
+          if (profileError) throw profileError;
+          profile = newProfile;
+      } else {
+          await supabase.from('profiles').update({
+              full_name: form.name,
+              pan_number: form.pan,
+              aadhaar_number: form.aadhaar,
+              occupation: form.occupation,
+              monthly_income: parseFloat(form.income)
+          }).eq('id', profile.id);
+      }
+
+      const { error: reqError } = await supabase.from('scheme_join_requests').insert([{
+          scheme_id: schemeId,
+          subscriber_id: profile.id,
+          status: 'PENDING'
+      }]);
+
+      if (reqError) throw reqError;
+
+      return profile.id;
+  },
+
+  // 4. Upload Docs for Online Subscriber
+  uploadOnlineSubscriberDoc: async (subscriberId: string, schemeId: string, file: File, docType: string) => {
+      const fileExt = file.name.split('.').pop();
+      const filePath = `subscribers/${subscriberId}/online_join/${docType}_${Date.now()}.${fileExt}`;
+      
+      const { error: uploadError } = await supabase.storage.from('documents').upload(filePath, file);
+      if (uploadError) throw uploadError;
+
+      await supabase.from('documents').insert([{
+          owner_id: subscriberId, 
+          scheme_id: schemeId, 
+          document_type: docType, 
+          document_name: file.name,
+          file_path: filePath, 
+          file_size: (file.size / 1024 / 1024).toFixed(2) + ' MB', 
+          category: 'KYC', 
+          status: 'SUBMITTED'
+      }]);
   }
 };
