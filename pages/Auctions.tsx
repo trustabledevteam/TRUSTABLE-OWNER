@@ -1,13 +1,12 @@
-
 import React, { useState, useEffect } from 'react';
 import { Card, Badge, Modal, Button, Input } from '../components/UI';
-import { Gavel, Calendar, Clock, FileText, ChevronLeft, Play, ShieldCheck, TrendingUp, UserX, UserCheck, Edit, CalendarIcon, TimerIcon } from 'lucide-react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Gavel, ChevronLeft, TrendingUp, FileText, RefreshCw, AlertTriangle } from 'lucide-react';
+import { useNavigate, useParams } from 'react-router-dom';
 import { api } from '../services/api';
 import { Auction } from '../types';
 
 const AuctionStatCard = ({ label, value, trend }: { label: string, value: string, trend: string }) => (
-    <div className="bg-white p-4 rounded-lg">
+    <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-100">
         <p className="text-xs text-gray-500 mb-1">{label}</p>
         <p className="text-xl font-bold text-gray-800">{value}</p>
         <p className="text-xs text-green-500 flex items-center gap-1 mt-1">
@@ -21,13 +20,12 @@ export const Auctions: React.FC = () => {
   const { id } = useParams(); // Scheme ID
   const [activeTab, setActiveTab] = useState<'upcoming' | 'completed'>('upcoming');
   const [auctions, setAuctions] = useState<Auction[]>([]);
-  const [nextAuction, setNextAuction] = useState<Auction | null>(null);
   const [loading, setLoading] = useState(true);
   
-  // Edit Modal
+  // Edit Modal State
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [editingAuction, setEditingAuction] = useState<Auction | null>(null);
-  const [editForm, setEditForm] = useState({ date: '', time: '', minBid: '', maxBid: '' });
+  const [editForm, setEditForm] = useState({ date: '', time: '' });
   const [isUpdating, setIsUpdating] = useState(false);
 
   useEffect(() => {
@@ -41,10 +39,6 @@ export const Auctions: React.FC = () => {
       try {
           const auctionData = await api.getAuctions(schemeId);
           setAuctions(auctionData);
-
-          const upcoming = auctionData.filter(a => a.status !== 'Completed');
-          const next = upcoming.length > 0 ? upcoming[0] : null;
-          setNextAuction(next);
       } catch (error) {
           console.error("Failed to load auctions:", error);
       } finally {
@@ -54,18 +48,27 @@ export const Auctions: React.FC = () => {
   
   const handleOpenEditModal = (auction: Auction) => {
     setEditingAuction(auction);
-    // Format date for input type='date' (YYYY-MM-DD)
-    const dateForInput = auction.rawDate ? auction.rawDate.toISOString().split('T')[0] : '';
-    // Format time for input type='time' (HH:MM)
-    const timeForInput = auction.time ? 
-        new Date(`1970-01-01T${auction.time.replace(/ (AM|PM)/, ':00 $1')}`).toTimeString().substring(0,5) 
-        : '15:00';
+    
+    let dateForInput = '';
+    let timeForInput = '10:00';
+
+    if (auction.rawDate) {
+        const d = auction.rawDate;
+        // Get local date components to avoid timezone shifts
+        const year = d.getFullYear();
+        const month = (d.getMonth() + 1).toString().padStart(2, '0');
+        const day = d.getDate().toString().padStart(2, '0');
+        dateForInput = `${year}-${month}-${day}`;
+
+        // Get local time components
+        const hours = d.getHours().toString().padStart(2, '0');
+        const minutes = d.getMinutes().toString().padStart(2, '0');
+        timeForInput = `${hours}:${minutes}`;
+    }
 
     setEditForm({
         date: dateForInput,
-        time: timeForInput,
-        minBid: auction.minBid?.toString() || '',
-        maxBid: auction.maxBid?.toString() || ''
+        time: timeForInput
     });
     setIsEditModalOpen(true);
   };
@@ -77,9 +80,7 @@ export const Auctions: React.FC = () => {
     try {
         await api.updateAuction(editingAuction.id, id, {
             date: editForm.date,
-            time: editForm.time,
-            minBid: parseFloat(editForm.minBid),
-            maxBid: parseFloat(editForm.maxBid)
+            time: editForm.time
         });
         alert("Auction updated successfully!");
         setIsEditModalOpen(false);
@@ -92,11 +93,20 @@ export const Auctions: React.FC = () => {
     }
   };
 
-  const completedAuctions = auctions.filter(a => a.status === 'Completed');
+  // Filter Logic
+  const completedAuctions = auctions.filter(a => a.status === 'COMPLETED');
+  // Upcoming includes scheduled future auctions AND current live ones
+  const upcomingAuctions = auctions.filter(a => a.status === 'UPCOMING' || a.status === 'LIVE');
+  
+  // The very next auction to show prominently
+  const nextAuction = upcomingAuctions.length > 0 ? upcomingAuctions[0] : null;
 
   return (
     <div className="space-y-6 bg-gray-50 -m-6 p-6 min-h-screen">
       <div className="flex items-center gap-3">
+        <button onClick={() => navigate(`/schemes/${id}`)} className="bg-white border border-gray-200 text-gray-600 p-2 rounded-full hover:bg-gray-50 transition-colors">
+            <ChevronLeft size={20} />
+        </button>
         <div className="p-2 bg-blue-100 rounded-lg text-blue-600">
             <Gavel size={24} />
         </div>
@@ -104,16 +114,16 @@ export const Auctions: React.FC = () => {
       </div>
 
       {/* Analytics Section */}
-      <div className="bg-blue-50 p-6 rounded-xl border border-blue-100">
+      <div className="bg-blue-50 p-6 rounded-xl border border-blue-100 shadow-sm">
           <div className="flex justify-between items-center mb-4">
               <h2 className="font-bold text-blue-800">Auction Analytics</h2>
-              <a href="#" className="text-xs text-blue-600 font-bold hover:underline">view more</a>
+              <span className="text-xs text-blue-600 font-bold bg-white px-2 py-1 rounded-full cursor-pointer hover:bg-blue-100">View Report</span>
           </div>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               <AuctionStatCard label="Monthly Collection" value="₹89,000" trend="8.5% Up" />
               <AuctionStatCard label="Overdue Amount" value="₹13,000" trend="8.5% Up" />
               <AuctionStatCard label="Defaulters" value="05" trend="8.5% Up" />
-              <AuctionStatCard label="Upcoming Auctions" value="01" trend="in 5 days" />
+              <AuctionStatCard label="Upcoming Auctions" value={upcomingAuctions.length.toString()} trend="Scheduled" />
           </div>
       </div>
 
@@ -137,31 +147,56 @@ export const Auctions: React.FC = () => {
               {loading ? (
                   <div className="flex justify-center p-12"><div className="w-8 h-8 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin"></div></div>
               ) : nextAuction ? (
-                  <div key={nextAuction.id} className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 max-w-2xl">
-                      <div className="flex justify-between items-start mb-4">
+                  <div key={nextAuction.id} className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 max-w-2xl animate-in fade-in slide-in-from-bottom-2">
+                      <div className="flex justify-between items-start mb-6 pb-4 border-b border-gray-100">
                           <div>
-                              <h3 className="font-bold text-gray-900 text-lg">{nextAuction.schemeName}</h3>
-                              <p className="text-sm text-gray-500">Scheme ID: {nextAuction.schemeId.substring(0,8)}</p>
+                              <h3 className="font-bold text-gray-900 text-xl">{nextAuction.schemeName || 'Scheme Auction'}</h3>
+                              <p className="text-sm text-gray-500">Scheme ID: {nextAuction.schemeId?.substring(0,8).toUpperCase()}</p>
                           </div>
-                          <span className="text-blue-600 font-bold">#{nextAuction.auctionNumber}</span>
+                          <span className={`px-3 py-1 rounded-full text-sm font-bold shadow-sm border ${nextAuction.status === 'LIVE' ? 'bg-red-100 text-red-600 border-red-200 animate-pulse' : 'bg-blue-100 text-blue-700 border-blue-200'}`}>
+                              {nextAuction.status === 'LIVE' ? 'LIVE NOW' : `Auction #${nextAuction.auctionNumber}`}
+                          </span>
                       </div>
                       
-                      <div className="grid grid-cols-2 gap-y-4 text-sm mb-6">
-                         <div><p className="text-gray-500 text-xs">Prize Pool</p><p className="font-semibold">₹{nextAuction.prizePool?.toLocaleString()}</p></div>
-                         <div><p className="text-gray-500 text-xs">Date</p><p className="font-semibold">{nextAuction.date}</p></div>
-                         <div><p className="text-gray-500 text-xs">Timing</p><p className="font-semibold">{nextAuction.time}</p></div>
-                         <div><p className="text-gray-500 text-xs">Eligible participants</p><p className="font-semibold">{nextAuction.eligibleParticipants} members</p></div>
-                         <div className="col-span-2"><p className="text-gray-500 text-xs">Bid limits</p><p className="font-semibold">₹{nextAuction.minBid?.toLocaleString()} - ₹{nextAuction.maxBid?.toLocaleString()}</p></div>
+                      <div className="grid grid-cols-2 gap-y-6 text-sm mb-8">
+                         <div>
+                             <p className="text-gray-500 text-xs mb-1">Prize Pool (Chit Value)</p>
+                             <p className="font-bold text-lg text-gray-800">₹{nextAuction.prizePool?.toLocaleString() || '0'}</p>
+                         </div>
+                         <div>
+                             <p className="text-gray-500 text-xs mb-1">Scheduled Date</p>
+                             <p className="font-bold text-lg text-gray-800">{nextAuction.date}</p>
+                         </div>
+                         <div>
+                             <p className="text-gray-500 text-xs mb-1">Timing</p>
+                             <p className="font-bold text-lg text-gray-800">{nextAuction.time}</p>
+                         </div>
+                         <div>
+                             <p className="text-gray-500 text-xs mb-1">Eligible Members</p>
+                             <p className="font-bold text-lg text-gray-800">{nextAuction.eligibleParticipants || 'All'} members</p>
+                         </div>
+                         <div className="col-span-2 bg-gray-50 p-3 rounded-lg border border-gray-100">
+                             <p className="text-gray-500 text-xs mb-1 uppercase font-bold">Bidding Limits</p>
+                             <p className="font-mono font-medium text-gray-700">
+                                 Min: ₹{nextAuction.minBid?.toLocaleString()} — Max: ₹{nextAuction.maxBid?.toLocaleString()}
+                             </p>
+                         </div>
                       </div>
 
                       <div className="flex justify-end gap-3">
-                        <Button variant="outline" onClick={() => handleOpenEditModal(nextAuction)}>Edit</Button>
-                        <Button onClick={() => navigate(`/schemes/${id}/auctions/live/watch`)}>Enter Room</Button>
+                        <Button variant="outline" onClick={() => handleOpenEditModal(nextAuction)} disabled={nextAuction.status === 'LIVE'}>Edit Details</Button>
+                        <Button onClick={() => navigate(`/schemes/${id}/auctions/live/watch`)} className={nextAuction.status === 'LIVE' ? 'bg-red-600 hover:bg-red-700' : ''}>
+                            {nextAuction.status === 'LIVE' ? 'Enter Live Room' : 'Enter Auction Room'}
+                        </Button>
                       </div>
                   </div>
               ) : (
-                  <div className="text-center py-12 text-gray-400 bg-white rounded-xl border border-dashed border-gray-200">
-                      No upcoming auctions scheduled.
+                  <div className="flex flex-col items-center justify-center py-16 bg-white rounded-xl border-2 border-dashed border-gray-200 gap-4">
+                      <div className="bg-gray-50 p-4 rounded-full">
+                          <AlertTriangle className="text-gray-400" size={32} />
+                      </div>
+                      <p className="text-gray-500 font-medium">No upcoming auctions scheduled.</p>
+                      <p className="text-xs text-gray-400 max-w-xs text-center">Auctions will be automatically scheduled once the scheme is approved and launched.</p>
                   </div>
               )}
           </div>
@@ -173,21 +208,21 @@ export const Auctions: React.FC = () => {
                  <div className="flex justify-center p-12"><div className="w-8 h-8 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin"></div></div>
              ) : completedAuctions.length > 0 ? (
                  <table className="w-full text-left">
-                     <thead className="bg-gray-50 border-b border-gray-100 text-xs font-bold text-gray-500 uppercase">
+                     <thead className="bg-gray-50 border-b border-gray-100 text-xs font-bold text-gray-500 uppercase tracking-wider">
                          <tr>
                              <th className="p-4 pl-6">Auction No</th>
                              <th className="p-4">Date</th>
                              <th className="p-4">Winner</th>
                              <th className="p-4">Winning Bid</th>
                              <th className="p-4">Dividend / Member</th>
-                             <th className="p-4">Payout</th>
+                             <th className="p-4">Payout Status</th>
                              <th className="p-4 text-center">Minutes</th>
                          </tr>
                      </thead>
                      <tbody className="text-sm divide-y divide-gray-50">
                          {completedAuctions.map(auc => (
-                             <tr key={auc.id} className="hover:bg-blue-50/30">
-                                 <td className="p-4 pl-6 font-mono text-gray-600">#{auc.auctionNumber}</td>
+                             <tr key={auc.id} className="hover:bg-blue-50/30 transition-colors">
+                                 <td className="p-4 pl-6 font-mono font-medium text-gray-600">#{auc.auctionNumber}</td>
                                  <td className="p-4 text-gray-900">{auc.date}</td>
                                  <td className="p-4 font-bold text-blue-600">{auc.winnerName || 'N/A'}</td>
                                  <td className="p-4 text-gray-900">₹{auc.winningBidAmount?.toLocaleString() || 0}</td>
@@ -196,40 +231,55 @@ export const Auctions: React.FC = () => {
                                      <Badge variant={auc.payoutStatus === 'Paid' ? 'success' : 'warning'}>{auc.payoutStatus || 'PENDING'}</Badge>
                                  </td>
                                  <td className="p-4 text-center">
-                                     <button className="text-gray-500 hover:text-blue-600 p-2"><FileText size={18} /></button>
+                                     <button className="text-gray-400 hover:text-blue-600 p-2 transition-colors"><FileText size={18} /></button>
                                  </td>
                              </tr>
                          ))}
                      </tbody>
                  </table>
              ) : (
-                <div className="p-8 text-center text-gray-400">No completed auctions yet.</div>
+                <div className="p-12 text-center text-gray-400 bg-gray-50/50">No completed auctions yet.</div>
              )}
           </div>
       )}
 
+      {/* Edit Auction Modal */}
       <Modal isOpen={isEditModalOpen} onClose={() => setIsEditModalOpen(false)} title={
           <div className="flex items-center gap-2">
-            <ChevronLeft size={18} /> AUCTION
+            <ChevronLeft size={18} /> EDIT AUCTION DETAILS
           </div>
       }>
-          <div className="space-y-4">
-              <Input label="Scheme Name" value={editingAuction?.schemeName || ''} readOnly className="bg-gray-100" />
-              <Input label="Prize Pool" value={`₹${editingAuction?.prizePool?.toLocaleString() || ''}`} readOnly className="bg-gray-100" />
+          <div className="space-y-5">
+              <Input label="Scheme Name" value={editingAuction?.schemeName || ''} readOnly className="bg-gray-100 text-gray-500" />
+              <Input label="Prize Pool (Chit Value)" value={`₹${editingAuction?.prizePool?.toLocaleString() || '0'}`} readOnly className="bg-gray-100 text-gray-500" />
+              
               <div className="grid grid-cols-2 gap-4">
-                  <Input label="Date" type="date" value={editForm.date} onChange={(e) => setEditForm({...editForm, date: e.target.value})} />
-                  <Input label="Time" type="time" value={editForm.time} onChange={(e) => setEditForm({...editForm, time: e.target.value})} />
+                  <Input label="Auction Date" type="date" value={editForm.date} onChange={(e) => setEditForm({...editForm, date: e.target.value})} />
+                  <Input label="Start Time" type="time" value={editForm.time} onChange={(e) => setEditForm({...editForm, time: e.target.value})} />
               </div>
-              <div>
-                <label className="text-sm font-medium text-gray-700 block mb-1">Bid Limits (min - max)</label>
+              
+              {/* Display Fixed Limits (Read-Only) */}
+              <div className="bg-blue-50 p-4 rounded-lg border border-blue-100">
+                <label className="text-sm font-bold text-blue-800 block mb-3">Bidding Limits (Fixed)</label>
                 <div className="grid grid-cols-2 gap-4">
-                    <Input type="number" placeholder="Min Amount" value={editForm.minBid} onChange={(e) => setEditForm({...editForm, minBid: e.target.value})} />
-                    <Input type="number" placeholder="Max Amount" value={editForm.maxBid} onChange={(e) => setEditForm({...editForm, maxBid: e.target.value})} />
+                    <div>
+                        <span className="text-xs text-gray-500 mb-1 block">Minimum Bid (5%)</span>
+                        <p className="font-mono font-bold text-gray-700 bg-white border border-blue-200 rounded p-2 text-sm">
+                            ₹{((editingAuction?.prizePool || 0) * 0.05).toLocaleString()}
+                        </p>
+                    </div>
+                    <div>
+                        <span className="text-xs text-gray-500 mb-1 block">Maximum Bid (40%)</span>
+                        <p className="font-mono font-bold text-gray-700 bg-white border border-blue-200 rounded p-2 text-sm">
+                            ₹{((editingAuction?.prizePool || 0) * 0.40).toLocaleString()}
+                        </p>
+                    </div>
                 </div>
               </div>
-              <div className="flex justify-end pt-4 gap-3">
+
+              <div className="flex justify-end pt-4 gap-3 border-t border-gray-100 mt-4">
                   <Button variant="outline" onClick={() => setIsEditModalOpen(false)}>Cancel</Button>
-                  <Button onClick={handleUpdateAuction} isLoading={isUpdating}>Confirm</Button>
+                  <Button onClick={handleUpdateAuction} isLoading={isUpdating}>Save Changes</Button>
               </div>
           </div>
       </Modal>

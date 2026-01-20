@@ -75,7 +75,8 @@ export const SchemeSubscribers: React.FC = () => {
       setLoading(true);
       try {
         const data = await api.getSubscribers(id);
-        setSubscribers(data);
+        // Cast data to Subscriber[] to satisfy type checking for 'type' literal union
+        setSubscribers(data as Subscriber[]);
       } catch (error) {
         console.error("Error fetching subscribers:", error);
       } finally {

@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { LayoutGrid, Upload, Users, Gavel, Wallet, FileText, Plus, ArrowRight, ChevronLeft, Bell, Trash2, Edit3, Loader2, AlertTriangle } from 'lucide-react';
+import { LayoutGrid, Upload, Users, Gavel, Wallet, FileText, Plus, ArrowRight, ChevronLeft, Bell, Trash2, Edit3, Loader2, AlertTriangle, Rocket, CheckCircle } from 'lucide-react';
 import { Card, Modal, Button } from '../components/UI';
 import { Link, useParams, useNavigate } from 'react-router-dom';
 import { api } from '../services/api';
@@ -39,6 +39,7 @@ export const SchemeDetails: React.FC = () => {
    
    const [scheme, setScheme] = useState<any>(null);
    const [isLoading, setIsLoading] = useState(true);
+   const [isLaunching, setIsLaunching] = useState(false);
 
    // Reminder State Logic
    const [reminders, setReminders] = useState<Reminder[]>([]);
@@ -51,20 +52,21 @@ export const SchemeDetails: React.FC = () => {
    const [taskDate, setTaskDate] = useState('');
    const [taskTime, setTaskTime] = useState('');
 
-   useEffect(() => {
-       const loadScheme = async () => {
-           if(id) {
-               setIsLoading(true);
-               try {
-                   const data = await api.getSchemeDetails(id);
-                   setScheme(data);
-               } catch (error) {
-                   console.error("Failed to load scheme details:", error);
-               } finally {
-                   setIsLoading(false);
-               }
+   const loadScheme = async () => {
+       if(id) {
+           setIsLoading(true);
+           try {
+               const data = await api.getSchemeDetails(id);
+               setScheme(data);
+           } catch (error) {
+               console.error("Failed to load scheme details:", error);
+           } finally {
+               setIsLoading(false);
            }
-       };
+       }
+   };
+
+   useEffect(() => {
        loadScheme();
    }, [id]);
 
@@ -189,6 +191,31 @@ export const SchemeDetails: React.FC = () => {
        setIsModalOpen(false);
      } catch (err) { console.error('Error saving reminder:', err); }
    };
+
+   // --- LAUNCH HANDLER ---
+   const handleLaunchScheme = async () => {
+       if(!scheme || !id) return;
+       const confirmLaunch = window.confirm("Are you sure you want to launch this scheme? This will ACTIVATE the scheme and automatically schedule the first auction.");
+       if(!confirmLaunch) return;
+
+       setIsLaunching(true);
+       try {
+           const { error } = await supabase
+               .from('schemes')
+               .update({ status: 'ACTIVE' })
+               .eq('id', id);
+           
+           if(error) throw error;
+           
+           alert("Scheme Launched! First auction has been scheduled.");
+           loadScheme(); // Refresh UI
+       } catch(err: any) {
+           console.error(err);
+           alert("Launch failed: " + err.message);
+       } finally {
+           setIsLaunching(false);
+       }
+   }
    
    if (isLoading) return <div className="flex h-screen items-center justify-center"><Loader2 className="animate-spin text-blue-500" size={32} /></div>;
 
@@ -217,11 +244,30 @@ export const SchemeDetails: React.FC = () => {
             <ChevronLeft size={16} className="mr-1 group-hover:-translate-x-1 transition-transform" />
             Back to My Schemes
          </button>
-         <div className="flex items-center gap-3">
-            <div className="p-2 bg-blue-50 rounded-lg text-blue-500">
-               <LayoutGrid size={24} />
+         <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+                <div className="p-2 bg-blue-50 rounded-lg text-blue-500">
+                <LayoutGrid size={24} />
+                </div>
+                <h1 className="text-2xl font-bold text-gray-900">Scheme Management</h1>
             </div>
-            <h1 className="text-2xl font-bold text-gray-900">Scheme Management</h1>
+            
+            {/* LAUNCH BUTTON */}
+            {scheme.status === 'PENDING_APPROVAL' && (
+                <button 
+                    onClick={handleLaunchScheme}
+                    disabled={isLaunching}
+                    className="bg-green-600 hover:bg-green-700 text-white px-6 py-2.5 rounded-lg shadow-lg shadow-green-200 font-bold flex items-center gap-2 transition-transform hover:scale-105"
+                >
+                    {isLaunching ? <Loader2 className="animate-spin" size={20} /> : <Rocket size={20} />}
+                    Launch Scheme
+                </button>
+            )}
+            {scheme.status === 'ACTIVE' && (
+                <div className="bg-green-100 text-green-700 px-4 py-2 rounded-lg font-bold flex items-center gap-2 border border-green-200">
+                    <CheckCircle size={20} /> Active
+                </div>
+            )}
          </div>
       </div>
 

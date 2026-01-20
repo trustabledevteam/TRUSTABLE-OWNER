@@ -142,7 +142,7 @@ export class AuctionEngine {
   }
 
   private async finalizeAuction(auctionId: string) {
-      console.log(`Finalizing Auction: ${auctionId}`);
+      console.log(`[Engine] Finalizing Auction: ${auctionId}`);
 
       // 1. Determine Winner
       const { data: highBid } = await this.supabase
@@ -173,16 +173,25 @@ export class AuctionEngine {
       }
 
       if (!winnerId) {
-          console.error("No eligible winner found.");
+          console.error("[Engine] No eligible winner found.");
           return;
       }
 
       // 3. Calculate Financials
       // Get Scheme Details for Value & Commission
       const { data: auction } = await this.supabase.from('auctions').select('*').eq('id', auctionId).single();
+      
+      if (!auction) {
+          console.error("[Engine] Could not find auction to finalize.");
+          return;
+      }
+
       const { data: scheme } = await this.supabase.from('schemes').select('chit_value, foreman_commission, members_count').eq('id', auction.scheme_id).single();
       
-      if (!scheme) return;
+      if (!scheme) {
+          console.error("[Engine] Could not find scheme for auction.");
+          return;
+      }
 
       const chitValue = scheme.chit_value;
       const commissionRate = scheme.foreman_commission || 5; // Default 5%
@@ -216,22 +225,28 @@ export class AuctionEngine {
           due_date: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString() // 7 days later
       }]);
 
+      console.log(`[Engine] Auction ${auctionId} processing complete. Winner identified, payout record created.`);
+
       // 7. AUTO-SCHEDULE NEXT AUCTION (USING SQL RPC)
       try {
-          const { error } = await this.supabase.rpc('auto_schedule_next_auction', {
+          console.log(`[Engine] Attempting to auto-schedule next auction by calling RPC...`);
+          
+          const { error: rpcError } = await this.supabase.rpc('auto_schedule_next_auction', {
               p_completed_auction_id: auctionId
           });
           
-          if (error) {
-              console.error("SQL Auto-Schedule Error:", error.message);
+          if (rpcError) {
+              // This will now give you a detailed error if the SQL function fails
+              console.error("[Engine] CRITICAL: RPC call to auto_schedule_next_auction failed!", rpcError);
           } else {
-              console.log(`Auto-scheduled next auction for Scheme ${auction.scheme_id} via DB function.`);
+              console.log(`[Engine] SUCCESS: RPC call completed. Next auction should be scheduled.`);
           }
+
       } catch (scheduleError) {
-          console.error("Failed to call auto-schedule RPC:", scheduleError);
+          console.error("[Engine] CRITICAL: Failed to execute the RPC call itself.", scheduleError);
       }
 
-      console.log(`Auction ${auctionId} Completed. Winner: ${winnerId}, Prize: ${prizeAmount}`);
+      console.log(`[Engine] Auction ${auctionId} Completed. Winner: ${winnerId}, Prize: ${prizeAmount}`);
 
       this.io.of('/auctions').to(auctionId).emit('auction_ended', { 
           winnerId, 

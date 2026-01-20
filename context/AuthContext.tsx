@@ -31,38 +31,36 @@ export const AuthProvider = ({ children }: { children?: React.ReactNode }) => {
 
   const fetchProfile = async (userId: string) => {
     try {
-      // Step 1: Fetch Profile Only (Avoid Joins to break complex RLS chains)
-      const { data: profileData, error: profileError } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', userId)
-        .single();
+      // Create a promise that rejects after 3 seconds to prevent hanging
+      const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error('Profile fetch timed out')), 3000));
+      
+      // The actual fetch
+      const fetchRequest = supabase.from('profiles').select('*').eq('id', userId).single();
+
+      // Race them
+      const result: any = await Promise.race([fetchRequest, timeout]);
+      
+      const { data: profileData, error: profileError } = result;
       
       if (profileError) {
           console.warn("Profile fetch warning:", profileError.message);
-          // Don't throw immediately, allow UI to handle partial state or retry
       }
       
       if (profileData) {
-          // Step 2: Fetch Company Separately if associated
           let companyData = null;
           if (profileData.company_id) {
-              const { data: comp } = await supabase
-                  .from('companies')
-                  .select('*')
-                  .eq('id', profileData.company_id)
-                  .single();
+              // Attempt to fetch company, but don't block if it fails
+              const { data: comp } = await supabase.from('companies').select('*').eq('id', profileData.company_id).single();
               companyData = comp;
           }
-          
-          // Combine manually
           setProfile({ ...profileData, companies: companyData });
       } else {
           setProfile(null);
       }
     } catch (e: any) {
-      console.error("Error loading profile", e.message);
-      setProfile(null);
+      console.error("Error loading profile (or timeout):", e.message);
+      // Even if profile fails, we don't set profile to null if we already had one, 
+      // or we just leave it as is to allow the app to render.
     }
   };
 
@@ -70,13 +68,15 @@ export const AuthProvider = ({ children }: { children?: React.ReactNode }) => {
     let mounted = true;
     
     const initializeAuth = async () => {
-      // Safety timeout: If auth takes longer than 5s, force stop loading
-      const timer = setTimeout(() => {
-          if (mounted) setIsLoading(false);
-      }, 5000);
+      // HARD STOP: If nothing happens in 4 seconds, force loading to false
+      const safetyTimer = setTimeout(() => {
+          if (mounted) {
+              console.warn("Auth initialization safety timeout triggered.");
+              setIsLoading(false);
+          }
+      }, 4000);
 
       try {
-        // 1. Check active session immediately
         const { data: { session: initialSession } } = await supabase.auth.getSession();
         
         if (mounted) {
@@ -90,29 +90,23 @@ export const AuthProvider = ({ children }: { children?: React.ReactNode }) => {
       } catch (error) {
         console.error("Auth initialization error:", error);
       } finally {
-        clearTimeout(timer);
+        clearTimeout(safetyTimer);
         if (mounted) setIsLoading(false);
       }
     };
 
     initializeAuth();
 
-    // 2. Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, newSession) => {
         if (!mounted) return;
-
         setSession(newSession);
-        const currentUser = newSession?.user ?? null;
-        setUser(currentUser);
+        setUser(newSession?.user ?? null);
         
-        if (currentUser) {
-            // Only fetch profile if we don't have it or user changed
-            // We also re-fetch if we are just switching back to focus to ensure fresh data
-            await fetchProfile(currentUser.id);
+        if (newSession?.user) {
+            fetchProfile(newSession.user.id); // Fetch in background, don't set loading true
         } else {
             setProfile(null);
         }
-        
         setIsLoading(false);
     });
 
@@ -121,33 +115,6 @@ export const AuthProvider = ({ children }: { children?: React.ReactNode }) => {
         subscription.unsubscribe();
     };
   }, []);
-
-  // 3. Listen for realtime profile changes (e.g. Admin Approval)
-  useEffect(() => {
-    if (!user?.id) return;
-
-    const channel = supabase
-      .channel(`profile-changes-${user.id}`)
-      .on(
-        'postgres_changes',
-        {
-          event: 'UPDATE',
-          schema: 'public',
-          table: 'profiles',
-          filter: `id=eq.${user.id}`,
-        },
-        () => {
-          console.log('Profile updated via realtime, refreshing...');
-          fetchProfile(user.id);
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [user?.id]);
-
 
   const signOut = async () => {
     await supabase.auth.signOut();

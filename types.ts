@@ -2,6 +2,7 @@
 export interface Scheme {
   id: string;
   name: string;
+  chitId?: string;
   chitValue: number;
   monthlyDue: number;
   duration: number; // months
@@ -43,7 +44,7 @@ export interface Auction {
   date: string;
   time?: string;
   rawDate?: Date; // Added for reliable sorting
-  status: 'Upcoming' | 'Live' | 'Completed';
+  status: 'UPCOMING' | 'LIVE' | 'COMPLETED'; // Normalized status
   winnerId?: string;
   winnerName?: string;
   winningBidAmount?: number;
@@ -59,7 +60,8 @@ export interface Auction {
 export interface Bid {
   id: string;
   auctionId: string;
-  userId: string;
+  userId: string; // This maps to subscriber_id in DB
+  enrollmentId: string;
   userName: string;
   amount: number;
   timestamp: string;
@@ -70,8 +72,8 @@ export interface Bid {
 export interface ProxyBid {
   id: string;
   auctionId: string;
-  subscriberId: string;
-  minAmount: number;
+  enrollmentId: string;
+  subscriberName?: string; // For UI display
   maxAmount: number;
 }
 
@@ -101,7 +103,7 @@ export interface Payout {
 
 
 export interface Reminder {
-  id:string;
+  id: number;
   title: string;
   time: string;
   type: 'auction' | 'payout' | 'collection' | 'general';
@@ -129,7 +131,7 @@ export interface SchemeJoinRequest {
   id: string;
   status: 'PENDING' | 'ACCEPTED' | 'REJECTED';
   requested_at: string;
-  app_subscribers: AppSubscriber; // Joined data from app_subscribers table
+  profile: AppSubscriber; // Joined data from profiles table (formerly app_subscribers)
   schemes: {
     id: string;
     name: string;

@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { Package, Check, X, FileText, Eye, PenTool, ArrowRight, Download, CheckCircle, Loader2, ChevronLeft, RefreshCw, Phone } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
@@ -341,7 +342,7 @@ export const Applications: React.FC = () => {
                         key={req.id} 
                         request={req} 
                         onAction={handleAction} 
-                        onViewProfile={() => handleViewProfile(req.app_subscribers.id)} 
+                        onViewProfile={() => handleViewProfile(req.profile.id)} // Changed from app_subscribers.id to profile.id
                         isProcessing={processingId === req.id}
                     />
                 ))

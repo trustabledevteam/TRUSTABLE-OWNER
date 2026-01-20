@@ -18,7 +18,6 @@ interface Reminder {
   completed: boolean;
 }
 
-// Helper to map Supabase data to our local Reminder type
 const mapSupabaseToReminder = (r: any): Reminder => {
     let timeDisplay = 'Scheduled';
     if (r.date) {
@@ -42,44 +41,58 @@ const mapSupabaseToReminder = (r: any): Reminder => {
 export const Dashboard: React.FC = () => {
   const { profile, user } = useAuth();
   
-  // Stats State
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Reminders State
   const [reminders, setReminders] = useState<Reminder[]>([]);
   const [remindersLoading, setRemindersLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingReminder, setEditingReminder] = useState<Reminder | null>(null);
   const [remindersError, setRemindersError] = useState<string | null>(null);
   
-  // Form State
   const [taskName, setTaskName] = useState('');
   const [priority, setPriority] = useState<'High' | 'Medium' | 'Low'>('High');
   const [taskDate, setTaskDate] = useState('');
   const [taskTime, setTaskTime] = useState('');
 
-  // 1. Fetch Stats
+  // 1. Fetch Stats with Safety Timeout
   useEffect(() => {
+    let active = true;
     const loadStats = async () => {
       if (!user?.id) {
-        setIsLoading(false);
+        if(active) setIsLoading(false);
         return;
       }
-      setIsLoading(true);
+      if(active) setIsLoading(true);
+      
       try {
-        const data = await api.getDashboardStats(user.id);
-        setStats(data);
+        // Timeout promise after 2.5 seconds
+        const timeout = new Promise((resolve) => setTimeout(() => resolve(null), 2500));
+        const apiCall = api.getDashboardStats(user.id);
+        
+        // Race the API call against the timeout
+        const data: any = await Promise.race([apiCall, timeout]);
+
+        if (active) {
+            if (data) {
+                setStats(data);
+            } else {
+                // Fallback if timed out or null
+                setStats({ totalSchemes: 0, monthlyProfit: 0, totalSubscribers: 0, activeLeads: 0, salesData: [] });
+                console.warn("Dashboard stats timed out, using fallback.");
+            }
+        }
       } catch (error) {
         console.error("Failed to load dashboard data", error);
       } finally {
-        setIsLoading(false);
+        if(active) setIsLoading(false);
       }
     };
     loadStats();
+    return () => { active = false; };
   }, [user?.id]);
 
-  // 2. Reminders Logic: Real-time Subscription
+  // 2. Reminders Logic
   useEffect(() => {
     if (!user?.id) {
       setRemindersLoading(false);
@@ -99,7 +112,8 @@ export const Dashboard: React.FC = () => {
         if (error) throw error;
         setReminders((data || []).map(mapSupabaseToReminder));
       } catch (err: any) {
-        console.error('Error fetching reminders:', err.message || err);
+        // Silent fail for reminders to keep dash usable
+        console.error('Error fetching reminders:', err.message);
         setRemindersError('Could not load reminders.');
       } finally {
         setRemindersLoading(false);
@@ -122,7 +136,6 @@ export const Dashboard: React.FC = () => {
     };
   }, [user?.id]);
 
-  // 4. Modal Helpers
   const openAddModal = () => {
     setEditingReminder(null);
     setTaskName('');
@@ -141,7 +154,6 @@ export const Dashboard: React.FC = () => {
     setIsModalOpen(true);
   };
 
-  // 5. Toggle Complete
   const toggleComplete = async (reminderId: number) => {
     const reminder = reminders.find(r => r.id === reminderId);
     if (!reminder) return;
@@ -152,21 +164,15 @@ export const Dashboard: React.FC = () => {
         .eq('id', reminderId);
 
       if (error) throw error;
-      // Local state update for immediate feedback
       setReminders(prev => prev.map(r => r.id === reminderId ? { ...r, completed: !r.completed } : r));
     } catch (err) {
       console.error('Error toggling reminder:', err);
     }
   };
 
-  // 6. Delete Reminder
   const deleteReminder = async (reminderId: number) => {
     try {
-      const { error } = await supabase
-        .from('reminders')
-        .delete()
-        .eq('id', reminderId);
-
+      const { error } = await supabase.from('reminders').delete().eq('id', reminderId);
       if (error) throw error;
       setReminders(prev => prev.filter(r => r.id !== reminderId));
       setIsModalOpen(false);
@@ -175,7 +181,6 @@ export const Dashboard: React.FC = () => {
     }
   };
 
-  // 7. Save Reminder (Create/Update)
   const handleSaveReminder = async () => {
     if (!taskName.trim() || !user) {
       alert("Please enter a task name.");
@@ -184,7 +189,6 @@ export const Dashboard: React.FC = () => {
 
     try {
       if (editingReminder) {
-        // UPDATE
         const { data, error } = await supabase
           .from('reminders')
           .update({ title: taskName, priority, date: taskDate || null, time: taskTime || null })
@@ -195,7 +199,6 @@ export const Dashboard: React.FC = () => {
         if (error) throw error;
         setReminders(prev => prev.map(r => r.id === editingReminder.id ? mapSupabaseToReminder(data) : r));
       } else {
-        // INSERT
         const { data, error } = await supabase
           .from('reminders')
           .insert({ owner_id: user.id, title: taskName, priority, date: taskDate || null, time: taskTime || null })
@@ -214,8 +217,9 @@ export const Dashboard: React.FC = () => {
 
   if (isLoading) {
     return (
-      <div className="flex h-[80vh] items-center justify-center">
+      <div className="flex h-[80vh] items-center justify-center flex-col gap-4">
         <Loader2 className="w-12 h-12 text-blue-500 animate-spin" />
+        <p className="text-gray-400 text-sm">Loading dashboard...</p>
       </div>
     );
   }
@@ -231,10 +235,10 @@ export const Dashboard: React.FC = () => {
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         {[
-          { label: 'Total Schemes', value: stats?.totalSchemes.toString() },
-          { label: 'Monthly profit', value: `₹${stats?.monthlyProfit.toLocaleString()}` },
-          { label: 'Total subscribers', value: stats?.totalSubscribers.toString() },
-          { label: 'Active Leads', value: stats?.activeLeads.toString(), link: '/leads' },
+          { label: 'Total Schemes', value: stats?.totalSchemes?.toString() || '0' },
+          { label: 'Monthly profit', value: `₹${stats?.monthlyProfit?.toLocaleString() || '0'}` },
+          { label: 'Total subscribers', value: stats?.totalSubscribers?.toString() || '0' },
+          { label: 'Active Leads', value: stats?.activeLeads?.toString() || '0', link: '/leads' },
         ].map((stat, idx) => {
           const Content = (
             <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex flex-col justify-center h-32 hover:shadow-md transition-shadow hover:border-blue-200">
@@ -257,7 +261,6 @@ export const Dashboard: React.FC = () => {
                 <div className="text-center text-red-500 py-8 flex flex-col items-center gap-2">
                     <AlertTriangle size={32} />
                     <span className="font-medium">{remindersError}</span>
-                    <span className="text-xs text-gray-400">Please try refreshing the page.</span>
                 </div>
               ) : reminders.length === 0 ? (
                 <div className="text-center text-gray-400 py-8">No reminders yet.</div>
@@ -275,38 +278,18 @@ export const Dashboard: React.FC = () => {
                     </div>
                     <div className="flex items-center space-x-2">
                        {reminder.completed ? (
-                         <button 
-                            onClick={() => deleteReminder(reminder.id)}
-                            className="p-1.5 text-red-500 hover:bg-red-50 rounded-md opacity-0 group-hover:opacity-100 transition-opacity"
-                            title="Delete"
-                          >
-                            <Trash2 size={14} />
-                          </button>
+                         <button onClick={() => deleteReminder(reminder.id)} className="p-1.5 text-red-500 hover:bg-red-50 rounded-md opacity-0 group-hover:opacity-100 transition-opacity"><Trash2 size={14} /></button>
                        ) : (
-                          <button 
-                            onClick={() => openEditModal(reminder)}
-                            className="p-1.5 text-blue-600 hover:bg-blue-100 rounded-md opacity-0 group-hover:opacity-100 transition-opacity"
-                            title="Edit"
-                          >
-                            <Edit3 size={14} />
-                          </button>
+                          <button onClick={() => openEditModal(reminder)} className="p-1.5 text-blue-600 hover:bg-blue-100 rounded-md opacity-0 group-hover:opacity-100 transition-opacity"><Edit3 size={14} /></button>
                        )}
-                       <input 
-                        type="checkbox" 
-                        checked={reminder.completed} 
-                        onChange={() => toggleComplete(reminder.id)}
-                        className="w-4 h-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500 cursor-pointer" 
-                       />
+                       <input type="checkbox" checked={reminder.completed} onChange={() => toggleComplete(reminder.id)} className="w-4 h-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500 cursor-pointer" />
                     </div>
                   </div>
                 ))
               )}
             </div>
             
-            <button 
-              onClick={openAddModal}
-              className="absolute bottom-6 right-6 w-12 h-12 bg-blue-500 hover:bg-blue-600 text-white rounded-full flex items-center justify-center shadow-lg transition-transform hover:scale-105 active:scale-95"
-            >
+            <button onClick={openAddModal} className="absolute bottom-6 right-6 w-12 h-12 bg-blue-500 hover:bg-blue-600 text-white rounded-full flex items-center justify-center shadow-lg transition-transform hover:scale-105 active:scale-95">
               <Plus size={24} />
             </button>
           </Card>
@@ -329,9 +312,7 @@ export const Dashboard: React.FC = () => {
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F3F4F6" />
                   <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fill: '#9CA3AF', fontSize: 12}} />
                   <YAxis axisLine={false} tickLine={false} tick={{fill: '#9CA3AF', fontSize: 12}} />
-                  <Tooltip 
-                    contentStyle={{ backgroundColor: '#fff', borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)' }} 
-                  />
+                  <Tooltip contentStyle={{ backgroundColor: '#fff', borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)' }} />
                   <Area type="monotone" dataKey="value" stroke="#2563EB" strokeWidth={3} fillOpacity={1} fill="url(#colorValue)" />
                 </AreaChart>
               </ResponsiveContainer>
@@ -340,74 +321,29 @@ export const Dashboard: React.FC = () => {
         </div>
       </div>
 
-      <Modal
-        isOpen={isModalOpen}
-        onClose={() => setIsModalOpen(false)}
-        title={editingReminder ? "EDIT REMINDER" : "ADD REMINDER"}
-        maxWidth="max-w-md"
-      >
+      <Modal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} title={editingReminder ? "EDIT REMINDER" : "ADD REMINDER"} maxWidth="max-w-md">
         <div className="space-y-5">
-           <div className="flex items-center gap-2 text-blue-600 font-medium text-sm mb-2">
-              <Bell size={16} /> <span>{editingReminder ? "Edit Reminder Details" : "New Reminder Details"}</span>
-           </div>
-           
+           <div className="flex items-center gap-2 text-blue-600 font-medium text-sm mb-2"><Bell size={16} /> <span>{editingReminder ? "Edit Reminder Details" : "New Reminder Details"}</span></div>
            <div className="grid grid-cols-2 gap-4">
              <div className="col-span-1">
                 <label className="text-xs font-semibold text-gray-500 block mb-1">Task Name *</label>
-                <input 
-                  value={taskName} 
-                  onChange={(e) => setTaskName(e.target.value)}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none" 
-                  placeholder="e.g. Gold Scheme"
-                />
+                <input value={taskName} onChange={(e) => setTaskName(e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none" placeholder="e.g. Gold Scheme" />
              </div>
              <div className="col-span-1">
                 <label className="text-xs font-semibold text-gray-500 block mb-1">Priority</label>
                 <div className="relative">
-                  <select 
-                    value={priority}
-                    onChange={(e) => setPriority(e.target.value as any)}
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none appearance-none bg-white"
-                  >
-                    <option value="High">High</option>
-                    <option value="Medium">Medium</option>
-                    <option value="Low">Low</option>
+                  <select value={priority} onChange={(e) => setPriority(e.target.value as any)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none appearance-none bg-white">
+                    <option value="High">High</option><option value="Medium">Medium</option><option value="Low">Low</option>
                   </select>
                 </div>
              </div>
            </div>
-
            <div className="grid grid-cols-2 gap-4">
-             <div className="col-span-1">
-                <label className="text-xs font-semibold text-gray-500 block mb-1">Date</label>
-                <input 
-                  type="date" 
-                  value={taskDate}
-                  onChange={(e) => setTaskDate(e.target.value)}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
-                />
-             </div>
-             <div className="col-span-1">
-                <label className="text-xs font-semibold text-gray-500 block mb-1">Time</label>
-                <input 
-                  type="time" 
-                  value={taskTime}
-                  onChange={(e) => setTaskTime(e.target.value)}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
-                />
-             </div>
+             <div className="col-span-1"><label className="text-xs font-semibold text-gray-500 block mb-1">Date</label><input type="date" value={taskDate} onChange={(e) => setTaskDate(e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none" /></div>
+             <div className="col-span-1"><label className="text-xs font-semibold text-gray-500 block mb-1">Time</label><input type="time" value={taskTime} onChange={(e) => setTaskTime(e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none" /></div>
            </div>
-           
            <div className="pt-4 flex items-center justify-between gap-3">
-             {editingReminder && (
-               <button 
-                 onClick={() => deleteReminder(editingReminder.id)}
-                 className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
-                 title="Delete"
-               >
-                 <Trash2 size={18} />
-               </button>
-             )}
+             {editingReminder && <button onClick={() => deleteReminder(editingReminder.id)} className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors"><Trash2 size={18} /></button>}
              <div className="flex gap-3 ml-auto">
                 <Button variant="outline" onClick={() => setIsModalOpen(false)}>Cancel</Button>
                 <Button onClick={handleSaveReminder}>Confirm</Button>

@@ -11,7 +11,7 @@ interface JoinRequestCardProps {
 }
 
 export const JoinRequestCard: React.FC<JoinRequestCardProps> = ({ request, onAction, onViewProfile, isProcessing }) => {
-  const sub = request.app_subscribers;
+  const sub = request.profile; // Changed from app_subscribers to profile
   const scheme = request.schemes;
 
   return (

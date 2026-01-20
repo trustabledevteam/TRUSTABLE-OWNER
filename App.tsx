@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { HashRouter, Routes, Route, Navigate, Outlet, useNavigate } from 'react-router-dom';
 import { Layout } from './components/Layout';
@@ -208,7 +207,7 @@ const ProtectedRoute = () => {
 const App = () => {
   return (
     <AuthProvider>
-        <HashRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+        <HashRouter>
         <Routes>
             <Route path="/" element={<LandingPage />} />
             <Route path="/login" element={<AuthLogin />} />
