@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, Gavel, Users, Clock, Trophy, Zap, ShieldCheck, ArrowRight, Play, UserCog, User } from 'lucide-react';
@@ -181,30 +180,25 @@ export const LiveAuction: React.FC = () => {
     }, [auctionData, schemeData]);
 
     // --- 3. SYSTEM AUTO-BIDDER (OWNER SIDE) ---
-    // This effect runs whenever the current bid changes. 
-    // It checks if any configured proxy wants to beat the current bid.
     useEffect(() => {
+        // Runs only when LIVE. Proxies are set during UPCOMING/LIVE.
         if (!isOwner || isUpcoming || auctionEnded || activeProxies.length === 0) return;
 
         const runAutoBidder = async () => {
-            // Find proxies who can beat the current bid
-            // Filter out the current high bidder (don't bid against self)
             const eligibleProxies = activeProxies.filter(p => 
                 p.maxAmount > currentBid && 
                 p.enrollmentId !== lastBidderEnrollmentId
             );
 
             if (eligibleProxies.length > 0) {
-                // Determine increment
                 const step = 100;
                 const nextBid = currentBid + step;
 
-                // Pick the proxy with the highest limit (simplified logic)
+                // Pick the proxy with the highest limit
                 eligibleProxies.sort((a, b) => b.maxAmount - a.maxAmount);
                 const winnerProxy = eligibleProxies[0];
 
                 if (nextBid <= winnerProxy.maxAmount) {
-                    // Simulate system thinking delay
                     setTimeout(async () => {
                         console.log(`[System] Auto-bidding for ${winnerProxy.subscriberName} @ ${nextBid}`);
                         await placeBidForEnrollment(nextBid, winnerProxy.enrollmentId, true);
@@ -227,8 +221,7 @@ export const LiveAuction: React.FC = () => {
                         setIsUpcoming(false);
                         return 20 * 60; 
                     } else {
-                        // Time's up! In a real system, backend would close it.
-                        // Here owner closes, or if subscriber view, just wait.
+                        // If owner, finalize. If subscriber, just wait for signal.
                         if (isOwner) handleEndAuction();
                         return 0;
                     }
@@ -260,29 +253,26 @@ export const LiveAuction: React.FC = () => {
     const handleOwnerAddProxy = async () => {
         if (!selectedProxySub || !proxyLimitAmount || !auctionData) return;
         try {
+            // This relies on the new RLS policy for owners
             await api.setProxyBidLimit(auctionData.id, selectedProxySub, parseFloat(proxyLimitAmount));
-            // Refresh local list
             const proxies = await api.getAuctionProxies(auctionData.id);
             setActiveProxies(proxies);
             setIsProxyModalOpen(false);
             setProxyLimitAmount('');
-            alert("Proxy Configured. System will now bid for this user.");
+            alert("Proxy Configured. System will auto-bid once auction starts.");
         } catch (e: any) {
-            alert(e.message);
+            alert("Failed to set proxy: " + e.message);
         }
     };
 
     const handleForceStart = async () => {
         if (!auctionData || !isOwner) return;
-        if (!confirm("Are you sure you want to start the auction immediately?")) return;
+        if (!confirm("Start auction now?")) return;
         await supabase.from('auctions').update({ status: 'LIVE', auction_date: new Date().toISOString() }).eq('id', auctionData.id);
     };
 
     const handleEndAuction = async () => {
-        if (!isOwner) {
-            // Viewer just waits for DB update
-            return;
-        }
+        if (!isOwner) return;
         setAuctionEnded(true);
         clearInterval(timerRef.current);
         if (auctionData) {
@@ -292,8 +282,6 @@ export const LiveAuction: React.FC = () => {
                 if (data && data.length > 0) {
                     const winner = data[0];
                     const { data: winProfile } = await supabase.from('scheme_enrollments').select('profiles(full_name)').eq('id', winner.winner_id).single();
-                    
-                    // Fix: Handle potential array or object for joined resource (profiles could be array if inferred by TS)
                     const profileData: any = winProfile?.profiles;
                     const winnerName = Array.isArray(profileData) ? profileData[0]?.full_name : profileData?.full_name;
 
@@ -315,8 +303,6 @@ export const LiveAuction: React.FC = () => {
         if (hours > 0) return `${hours}h ${minutes}m`;
         return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
     };
-
-    // --- RENDER ---
 
     if (auctionEnded) {
         return (
@@ -372,6 +358,7 @@ export const LiveAuction: React.FC = () => {
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 flex-1 min-h-0">
                 {/* Left Column: Stats & Controls */}
                 <div className="lg:col-span-2 flex flex-col gap-6">
+                    {/* Display Card */}
                     <div className="bg-gradient-to-br from-blue-600 to-blue-800 rounded-2xl p-8 text-white shadow-xl relative overflow-hidden transition-all group">
                         <div className="flex justify-between items-start relative z-10">
                             <div><p className="text-blue-100 font-medium mb-1 flex items-center gap-2"><Gavel size={18} /> Current Highest Bid</p><h2 className="text-6xl font-bold tracking-tight mt-2 drop-shadow-md">₹{currentBid.toLocaleString()}</h2></div>
@@ -383,34 +370,47 @@ export const LiveAuction: React.FC = () => {
                         </div>
                     </div>
 
+                    {/* Controls Section - Logic Fixed to Show Owner Controls Anytime */}
                     <div className="bg-white p-6 rounded-xl border border-gray-100 shadow-sm flex-1 flex flex-col justify-center items-center gap-4 relative">
-                        {isUpcoming ? (
-                            <div className="text-center w-full max-w-lg mb-4">
-                                <h3 className="font-bold text-gray-800 mb-2">Auction starts in {formatTime(timeLeft)}</h3>
-                                <p className="text-sm text-gray-500">Wait for the auction to go live.</p>
+                        {isOwner ? (
+                            // OWNER VIEW: Always show controls, even in UPCOMING
+                            <div className="w-full">
+                                <div className="bg-purple-50 border border-purple-200 rounded-xl p-4 mb-4">
+                                    <div className="flex justify-between items-center mb-2">
+                                        <h4 className="font-bold text-purple-800 flex items-center gap-2"><UserCog size={18}/> Owner Controls</h4>
+                                        <button onClick={() => setIsProxyModalOpen(true)} className="text-xs bg-purple-600 text-white px-3 py-1.5 rounded-lg hover:bg-purple-700 shadow-sm flex items-center gap-1 font-medium transition-transform hover:scale-105">
+                                            <Zap size={12} className="fill-current"/> Configure Proxy
+                                        </button>
+                                    </div>
+                                    <div className="flex justify-between items-end">
+                                        <div>
+                                            <p className="text-xs text-purple-600 mb-1">Active Proxies: {activeProxies.length}</p>
+                                            <div className="text-[10px] text-gray-500 italic">System will auto-bid once auction is LIVE.</div>
+                                        </div>
+                                        {isUpcoming && <div className="text-xs font-bold text-orange-500 bg-orange-50 px-2 py-1 rounded">Auction not started</div>}
+                                    </div>
+                                </div>
                             </div>
                         ) : (
-                            <div className="w-full">
-                                {isOwner ? (
-                                    <div className="bg-purple-50 border border-purple-200 rounded-xl p-4 mb-4">
-                                        <div className="flex justify-between items-center mb-2">
-                                            <h4 className="font-bold text-purple-800 flex items-center gap-2"><UserCog size={18}/> Owner Controls</h4>
-                                            <button onClick={() => setIsProxyModalOpen(true)} className="text-xs bg-purple-600 text-white px-3 py-1 rounded hover:bg-purple-700">Configure Proxy</button>
-                                        </div>
-                                        <p className="text-xs text-purple-600 mb-2">Active Proxies: {activeProxies.length}</p>
-                                        <div className="text-xs text-gray-500 italic">System will auto-bid for offline users based on limits.</div>
+                            // SUBSCRIBER VIEW: Only show bid controls if LIVE
+                            <>
+                                {isUpcoming ? (
+                                    <div className="text-center w-full max-w-lg mb-4">
+                                        <div className="w-16 h-16 bg-blue-50 text-blue-500 rounded-full flex items-center justify-center mx-auto mb-4 animate-pulse"><Clock size={32}/></div>
+                                        <h3 className="font-bold text-gray-800 mb-2">Auction starts in {formatTime(timeLeft)}</h3>
+                                        <p className="text-sm text-gray-500">Please wait for the foreman to start the auction.</p>
                                     </div>
                                 ) : (
-                                    <>
+                                    <div className="w-full">
                                         <h3 className="font-bold text-gray-800 mb-4 text-center">Place Your Bid</h3>
                                         <div className="flex gap-4 w-full max-w-lg mx-auto">
                                             <button onClick={() => placeBidForEnrollment(currentBid + 100, myEnrollmentId!)} className="flex-1 bg-blue-50 text-blue-700 border border-blue-100 font-bold py-4 rounded-xl hover:bg-blue-100 active:scale-95 transition-all">+ ₹100</button>
                                             <button onClick={() => placeBidForEnrollment(currentBid + 500, myEnrollmentId!)} className="flex-1 bg-blue-50 text-blue-700 border border-blue-100 font-bold py-4 rounded-xl hover:bg-blue-100 active:scale-95 transition-all">+ ₹500</button>
                                             <button onClick={() => placeBidForEnrollment(currentBid + 1000, myEnrollmentId!)} className="flex-1 bg-blue-600 text-white font-bold py-4 rounded-xl hover:bg-blue-700 shadow-lg active:scale-95 transition-all">+ ₹1,000</button>
                                         </div>
-                                    </>
+                                    </div>
                                 )}
-                            </div>
+                            </>
                         )}
                     </div>
                 </div>
@@ -438,11 +438,11 @@ export const LiveAuction: React.FC = () => {
             {/* Owner Proxy Modal */}
             <Modal isOpen={isProxyModalOpen} onClose={() => setIsProxyModalOpen(false)} title="Configure Offline Proxy" maxWidth="max-w-md">
                 <div className="space-y-4">
-                    <p className="text-sm text-gray-600">Select an offline subscriber to place bids on their behalf automatically.</p>
+                    <p className="text-sm text-gray-600">Select an offline subscriber to place bids on their behalf automatically during the live auction.</p>
                     
                     <div>
                         <label className="text-xs font-bold text-gray-500 mb-1 block">Select Subscriber</label>
-                        <select className="w-full border border-gray-300 rounded-lg p-2 text-sm bg-white" value={selectedProxySub} onChange={(e) => setSelectedProxySub(e.target.value)}>
+                        <select className="w-full border border-gray-300 rounded-lg p-2 text-sm bg-white focus:ring-2 focus:ring-blue-500 outline-none" value={selectedProxySub} onChange={(e) => setSelectedProxySub(e.target.value)}>
                             <option value="">Select Subscriber</option>
                             {offlineSubscribers.map(sub => (
                                 <option key={sub.id} value={sub.id}>{sub.name}</option>
@@ -459,12 +459,12 @@ export const LiveAuction: React.FC = () => {
 
                     {activeProxies.length > 0 && (
                         <div className="border-t pt-4 mt-2">
-                            <h5 className="text-xs font-bold text-gray-500 mb-2">Active Proxies</h5>
-                            <div className="space-y-2">
+                            <h5 className="text-xs font-bold text-gray-500 mb-2">Active Proxies Configured</h5>
+                            <div className="space-y-2 max-h-32 overflow-y-auto pr-1 custom-scrollbar">
                                 {activeProxies.map(p => (
-                                    <div key={p.id} className="flex justify-between text-sm bg-gray-50 p-2 rounded">
-                                        <span>{p.subscriberName || 'Unknown'}</span>
-                                        <span className="font-mono font-bold">Limit: ₹{p.maxAmount}</span>
+                                    <div key={p.id} className="flex justify-between items-center text-sm bg-gray-50 p-2 rounded border border-gray-100">
+                                        <span className="font-medium text-gray-700">{p.subscriberName || 'Unknown'}</span>
+                                        <span className="font-mono font-bold text-purple-600">Max: ₹{p.maxAmount}</span>
                                     </div>
                                 ))}
                             </div>

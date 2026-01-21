@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import { Filter, RotateCcw, Eye, Pencil, MessageSquare, MoreHorizontal, RefreshCw, UserPlus, Users, ChevronLeft, ArrowRight, Upload, CheckCircle, Search, Download, FileText, Smartphone, ShieldCheck, Lock, UserMinus, ArrowLeftRight, Trash2, Fingerprint, MapPin, Briefcase, User, FileCheck, Check, Loader2, X, Plus } from 'lucide-react';
 import { useNavigate, useParams } from 'react-router-dom';
@@ -313,9 +312,11 @@ export const SchemeSubscribers: React.FC = () => {
                 <div className="p-2 bg-blue-50 rounded-lg text-blue-500"><Users size={24} /></div>
                 <h1 className="text-2xl font-bold text-gray-900">{pageTitle}</h1>
              </div>
-             <button onClick={handleAddSubscriber} className="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2.5 rounded-lg font-bold flex items-center gap-2 shadow-lg transition-transform hover:scale-105">
-                <Plus size={18} /> Add Offline Subscriber
-             </button>
+             {id && (
+                 <button onClick={handleAddSubscriber} className="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2.5 rounded-lg font-bold flex items-center gap-2 shadow-lg transition-transform hover:scale-105">
+                    <Plus size={18} /> Add Offline Subscriber
+                 </button>
+             )}
          </div>
       </div>
 
