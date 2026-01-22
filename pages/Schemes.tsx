@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { Card, Button, Input, Modal, Badge } from '../components/UI';
 import { Plus, Filter, LayoutGrid, RotateCcw, ArrowRight, Upload, Calendar, CheckCircle, Clock, Loader2, AlertTriangle, Lock, Calculator } from 'lucide-react';
@@ -44,7 +43,8 @@ export const Schemes: React.FC = () => {
       gracePeriod: '', lateFee: '',
       securityType: '1-2 Guarantors', 
       defaultPeriod: '', 
-      auctionDay: '', dueDay: ''
+      auctionDay: '', dueDay: '',
+      auctionDuration: '20' // New field default
   };
 
   const [formData, setFormData] = useState(savedState?.formData || initialForm);
@@ -171,6 +171,8 @@ export const Schemes: React.FC = () => {
 
           if(!formData.auctionDay || !formData.dueDay) return alert("Please specify auction and due days");
           if(parseInt(formData.auctionDay) > 31 || parseInt(formData.dueDay) > 31) return alert("Enter valid day of month (1-31)");
+          
+          if(!formData.auctionDuration || parseInt(formData.auctionDuration) < 5) return alert("Auction duration must be at least 5 minutes");
       }
 
       setStep(step + 1);
@@ -352,13 +354,21 @@ export const Schemes: React.FC = () => {
                 <p className="text-xs text-gray-400 mt-1">Last date to pay monthly due</p>
               </div>
 
+              {/* NEW FIELD: Auction Duration */}
               <div className="col-span-1">
-                <label className="text-sm font-semibold text-gray-500 mb-2 block uppercase tracking-wide">Grace Period (Days)</label>
-                <input name="gracePeriod" type="number" value={formData.gracePeriod} onChange={handleChange} className="w-full border border-gray-400 rounded-lg p-3 focus:outline-none focus:border-blue-500 text-gray-800" />
+                <label className="text-sm font-semibold text-gray-500 mb-2 block uppercase tracking-wide">Auction Duration (Minutes)</label>
+                <input name="auctionDuration" type="number" min="5" value={formData.auctionDuration} onChange={handleChange} placeholder="e.g. 20" className="w-full border border-gray-400 rounded-lg p-3 focus:outline-none focus:border-blue-500 text-gray-800" />
+                <p className="text-xs text-gray-400 mt-1">How long the live auction remains open</p>
               </div>
+
               <div className="col-span-1">
                 <label className="text-sm font-semibold text-gray-500 mb-2 block uppercase tracking-wide">Late Fee (₹)</label>
                 <input name="lateFee" type="number" value={formData.lateFee} onChange={handleChange} className="w-full border border-gray-400 rounded-lg p-3 focus:outline-none focus:border-blue-500 text-gray-800" />
+              </div>
+              
+              <div className="col-span-1">
+                <label className="text-sm font-semibold text-gray-500 mb-2 block uppercase tracking-wide">Grace Period (Days)</label>
+                <input name="gracePeriod" type="number" value={formData.gracePeriod} onChange={handleChange} className="w-full border border-gray-400 rounded-lg p-3 focus:outline-none focus:border-blue-500 text-gray-800" />
               </div>
             </div>
 

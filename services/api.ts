@@ -53,7 +53,8 @@ export const api = {
           psoNumber: s.pso_number,
           discountMin: s.discount_min,
           discountMax: s.discount_max,
-          ownerId: s.owner_id
+          ownerId: s.owner_id,
+          auctionDuration: s.auction_duration_mins // Added
       }));
   },
 
@@ -80,7 +81,8 @@ export const api = {
         grace_period_days: safeInt(schemeData.gracePeriod),
         late_fee: safeFloat(schemeData.lateFee),
         default_status_period: safeInt(schemeData.defaultPeriod),
-        security_type: schemeData.securityType
+        security_type: schemeData.securityType,
+        auction_duration_mins: safeInt(schemeData.auctionDuration) // Added
       }])
       .select()
       .single();
@@ -126,7 +128,8 @@ export const api = {
           psoNumber: data.pso_number,
           discountMin: data.discount_min,
           discountMax: data.discount_max,
-          ownerId: data.owner_id
+          ownerId: data.owner_id,
+          auctionDuration: data.auction_duration_mins // Added
       };
   },
 

@@ -1,4 +1,3 @@
-
 import React, { useEffect, useState } from 'react';
 import { supabase } from '../services/supabaseClient';
 import { CheckCircle, XCircle, FileText, ExternalLink, Loader2, RefreshCw, Users } from 'lucide-react';
@@ -26,7 +25,7 @@ interface VerificationRequest {
 }
 
 export const AdminVerify: React.FC = () => {
-    const { user } = useAuth();
+    const { user, refreshProfile } = useAuth(); // Added refreshProfile
     const [activeTab, setActiveTab] = useState<'company_verify' | 'join_requests'>('company_verify');
     const [companyVerificationRequests, setCompanyVerificationRequests] = useState<VerificationRequest[]>([]);
     const [pendingJoinRequests, setPendingJoinRequests] = useState<SchemeJoinRequest[]>([]);
@@ -61,7 +60,7 @@ export const AdminVerify: React.FC = () => {
             setCompanyVerificationRequests(merged);
         } catch (error: any) {
             console.error("Error fetching company verification requests:", error.message);
-            alert("Failed to load company verification requests.");
+            // Don't alert here to avoid spamming if empty
         } finally {
             setLoadingCompanyVerify(false);
         }
@@ -74,7 +73,6 @@ export const AdminVerify: React.FC = () => {
             setPendingJoinRequests(data);
         } catch (error: any) {
             console.error("Error fetching pending join requests:", error.message);
-            alert("Failed to load join requests: " + error.message);
         } finally {
             setLoadingJoinRequests(false);
         }
@@ -92,13 +90,31 @@ export const AdminVerify: React.FC = () => {
     const handleApproveCompany = async (id: string) => {
         setActionLoading(id);
         try {
-            const { error } = await supabase.from('profiles').update({ verification_status: 'APPROVED' }).eq('id', id);
+            // Update profile status
+            const { error } = await supabase
+                .from('profiles')
+                .update({ verification_status: 'APPROVED' })
+                .eq('id', id);
+
             if (error) throw error;
+            
+            // Also update any submitted documents to VERIFIED
+            await supabase
+                .from('documents')
+                .update({ status: 'VERIFIED' })
+                .eq('owner_id', id);
+
             setCompanyVerificationRequests(prev => prev.filter(r => r.id !== id));
+            
+            // CRITICAL FIX: If admin approved themselves, refresh immediately
+            if (user?.id === id) {
+                await refreshProfile();
+            }
+            
             alert("Company Account Approved Successfully!");
         } catch (error: any) {
             console.error("Failed to approve company:", error.message);
-            alert("Failed to approve company.");
+            alert("Failed to approve company: " + error.message);
         } finally {
             setActionLoading(null);
         }
@@ -111,6 +127,9 @@ export const AdminVerify: React.FC = () => {
             const { error } = await supabase.from('profiles').update({ verification_status: 'REJECTED' }).eq('id', id);
             if (error) throw error;
             setCompanyVerificationRequests(prev => prev.filter(r => r.id !== id));
+            
+            if (user?.id === id) await refreshProfile();
+
             alert("Company Account Rejected Successfully!");
         } catch (error: any) {
             console.error("Failed to reject company:", error.message);
@@ -147,6 +166,7 @@ export const AdminVerify: React.FC = () => {
     const handleRefreshAll = () => {
         fetchCompanyVerificationRequests();
         if (user?.id) fetchPendingJoinRequests(user.id);
+        refreshProfile(); // Also refresh own profile on manual refresh
     };
 
     return (
@@ -207,7 +227,6 @@ export const AdminVerify: React.FC = () => {
                                                 variant="danger" 
                                                 onClick={() => handleRejectCompany(req.id)}
                                                 disabled={actionLoading === req.id}
-                                                aria-label={`Reject ${req.companies?.company_name || req.full_name}`}
                                             >
                                                 {actionLoading === req.id && <Loader2 className="animate-spin mr-2" size={16} />}
                                                 Reject
@@ -216,7 +235,6 @@ export const AdminVerify: React.FC = () => {
                                                 onClick={() => handleApproveCompany(req.id)}
                                                 disabled={actionLoading === req.id}
                                                 className="bg-green-600 hover:bg-green-700"
-                                                aria-label={`Approve ${req.companies?.company_name || req.full_name}`}
                                             >
                                                 {actionLoading === req.id ? <Loader2 className="animate-spin mr-2" size={16} /> : <CheckCircle size={16} className="mr-2" />}
                                                 Approve
@@ -234,7 +252,6 @@ export const AdminVerify: React.FC = () => {
                                                     target="_blank" 
                                                     rel="noreferrer"
                                                     className="flex items-center gap-2 p-3 rounded-lg border border-gray-200 hover:bg-blue-50 hover:border-blue-200 transition-colors group"
-                                                    aria-label={`View document: ${doc.document_type.replace('_', ' ')}`}
                                                 >
                                                     <FileText size={20} className="text-gray-400 group-hover:text-blue-500" />
                                                     <div className="overflow-hidden">

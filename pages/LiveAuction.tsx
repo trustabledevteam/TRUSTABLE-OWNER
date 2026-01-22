@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, Gavel, Users, Clock, Trophy, Zap, ShieldCheck, ArrowRight, Play, UserCog, User } from 'lucide-react';
+import { ArrowLeft, Gavel, Users, Clock, Trophy, Zap, ShieldCheck, ArrowRight, Play, UserCog, User, Loader2 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../services/api';
 import { supabase } from '../services/supabaseClient';
@@ -19,36 +19,36 @@ export const LiveAuction: React.FC = () => {
     const [isOwner, setIsOwner] = useState(false);
     
     // Live Auction State
-    const [currentBid, setCurrentBid] = useState(0);
+    const [currentBid, setCurrentBid] = useState(0); // This represents PRIZE MONEY (decreasing)
     const [lastBidderName, setLastBidderName] = useState("Waiting for bids...");
-    const [lastBidderEnrollmentId, setLastBidderEnrollmentId] = useState<string | null>(null);
     const [timeLeft, setTimeLeft] = useState<number>(0);
     const [bids, setBids] = useState<Bid[]>([]);
     const [auctionEnded, setAuctionEnded] = useState(false);
     const [winnerDetails, setWinnerDetails] = useState<any>(null);
     const [isUpcoming, setIsUpcoming] = useState(false);
+    const [isTimeUp, setIsTimeUp] = useState(false);
     
     // -- OWNER PROXY STATE --
     const [isProxyModalOpen, setIsProxyModalOpen] = useState(false);
     const [offlineSubscribers, setOfflineSubscribers] = useState<{id: string, name: string}[]>([]);
     const [selectedProxySub, setSelectedProxySub] = useState('');
     const [proxyLimitAmount, setProxyLimitAmount] = useState('');
-    const [activeProxies, setActiveProxies] = useState<ProxyBid[]>([]); // List of active proxies for this auction
+    const [activeProxies, setActiveProxies] = useState<ProxyBid[]>([]); 
     
     // UI State
     const [isLoading, setIsLoading] = useState(true);
-    const [isPlacingBid, setIsPlacingBid] = useState(false);
-    const timerRef = useRef<any>(null);
+    const finalizationTriggered = useRef(false);
 
     // --- 1. INITIAL SETUP ---
     useEffect(() => {
+        let isMounted = true;
         const init = async () => {
             if (!id || !user) return;
             setIsLoading(true);
             try {
                 // Get Scheme details and check ownership
                 const { data: schemeRaw } = await supabase.from('schemes').select('*').eq('id', id).single();
-                if (schemeRaw) {
+                if (isMounted && schemeRaw) {
                     setSchemeData(schemeRaw);
                     if (schemeRaw.owner_id === user.id) setIsOwner(true);
                 }
@@ -56,7 +56,7 @@ export const LiveAuction: React.FC = () => {
                 // Get User Enrollment (if not owner)
                 if (schemeRaw.owner_id !== user.id) {
                     const { data: enrollment } = await supabase.from('scheme_enrollments').select('id').eq('scheme_id', id).eq('subscriber_id', user.id).single();
-                    if (enrollment) setMyEnrollmentId(enrollment.id);
+                    if (isMounted && enrollment) setMyEnrollmentId(enrollment.id);
                 }
 
                 // Fetch next auction
@@ -70,28 +70,55 @@ export const LiveAuction: React.FC = () => {
                     .single();
                 
                 if (!auction) {
-                    // Check if complete
                     const { count } = await supabase.from('auctions').select('*', { count: 'exact', head: true }).eq('scheme_id', id).eq('status', 'COMPLETED');
-                    if (count === schemeRaw?.duration_months) setAuctionEnded(true);
+                    if (isMounted && count === schemeRaw?.duration_months) setAuctionEnded(true);
                     return;
                 }
 
-                setAuctionData(auction);
+                if(isMounted) setAuctionData(auction);
                 
-                // Status Logic
+                // --- STRICT TIME LOGIC ---
                 const auctionDate = new Date(auction.auction_date);
-                const isUpcomingStatus = auction.status === 'UPCOMING';
-                setIsUpcoming(isUpcomingStatus);
+                const now = new Date();
+                const durationMins = schemeRaw.auction_duration_mins || 20; 
+                const endTime = new Date(auctionDate.getTime() + durationMins * 60000);
+
+                if (auction.status === 'COMPLETED') {
+                    if(isMounted) {
+                        setAuctionEnded(true);
+                        handleEndAuction(auction.id, true);
+                    }
+                } else if (now > endTime && auction.status === 'LIVE') {
+                    if(isMounted) setIsTimeUp(true);
+                    if (schemeRaw.owner_id === user.id && !finalizationTriggered.current) {
+                        finalizationTriggered.current = true;
+                        handleEndAuction(auction.id); 
+                    }
+                } else if (now < auctionDate) {
+                    if(isMounted) {
+                        setIsUpcoming(true);
+                        const diffSeconds = Math.floor((auctionDate.getTime() - now.getTime()) / 1000);
+                        setTimeLeft(diffSeconds);
+                    }
+                } else {
+                    if(isMounted) {
+                        setIsUpcoming(false);
+                        const diffSeconds = Math.floor((endTime.getTime() - now.getTime()) / 1000);
+                        setTimeLeft(diffSeconds);
+                    }
+                }
 
                 // Load Historic Bids
                 const { data: existingBids } = await supabase
                     .from('bids')
                     .select('*, scheme_enrollments!inner(subscriber_id, profiles:subscriber_id(full_name))') 
                     .eq('auction_id', auction.id)
-                    .order('amount', { ascending: false });
+                    .order('amount', { ascending: true }); // ASC because Lowest Bid wins
 
-                if (existingBids && existingBids.length > 0) {
-                    const formattedBids = existingBids.map((b: any) => ({
+                if (isMounted && existingBids && existingBids.length > 0) {
+                    // Set latest (lowest) bid
+                    const lowestBid = existingBids[0]; // First item is lowest
+                    setBids(existingBids.map((b: any) => ({
                         id: b.id,
                         auctionId: b.auction_id,
                         userId: b.scheme_enrollments.subscriber_id,
@@ -100,34 +127,26 @@ export const LiveAuction: React.FC = () => {
                         amount: b.amount,
                         timestamp: new Date(b.created_at).toLocaleTimeString(),
                         isProxy: b.bid_type === 'PROXY'
-                    }));
-                    setBids(formattedBids);
-                    setCurrentBid(formattedBids[0].amount);
-                    setLastBidderName(formattedBids[0].userName);
-                    setLastBidderEnrollmentId(formattedBids[0].enrollmentId);
+                    })));
+                    setCurrentBid(lowestBid.amount);
+                    setLastBidderName(lowestBid.scheme_enrollments?.profiles?.full_name);
                 } else {
-                    setCurrentBid(schemeRaw?.discount_min || 0);
+                    if(isMounted) setCurrentBid(schemeRaw?.chit_value || 0); // Start at Full Value
                 }
-
-                // Timer Setup
-                const durationMins = 20; 
-                const targetTime = isUpcomingStatus ? auctionDate : new Date(auctionDate.getTime() + durationMins * 60000);
-                const diffSeconds = Math.floor((targetTime.getTime() - new Date().getTime()) / 1000);
-                setTimeLeft(diffSeconds > 0 ? diffSeconds : 0);
 
                 // Load Proxies (Owner Only)
                 if (schemeRaw.owner_id === user.id) {
                     const offlineSubs = await api.getOfflineSubscribersForProxy(id);
-                    setOfflineSubscribers(offlineSubs);
-                    
+                    if(isMounted) setOfflineSubscribers(offlineSubs);
                     const proxies = await api.getAuctionProxies(auction.id);
-                    setActiveProxies(proxies);
+                    if(isMounted) setActiveProxies(proxies);
                 }
 
             } catch (e) { console.error("Init failed", e); } 
-            finally { setIsLoading(false); }
+            finally { if(isMounted) setIsLoading(false); }
         };
         init();
+        return () => { isMounted = false; };
     }, [id, user?.id]);
 
     // --- 2. REAL-TIME SUBSCRIPTION ---
@@ -155,10 +174,10 @@ export const LiveAuction: React.FC = () => {
                         isProxy: newBidRow.bid_type === 'PROXY'
                     };
 
+                    // Add to top, but logic assumes updates push lowest value
                     setBids(prev => [newBid, ...prev]);
                     setCurrentBid(newBidRow.amount);
                     setLastBidderName(bidderName);
-                    setLastBidderEnrollmentId(newBidRow.enrollment_id);
                 }
             )
             .on('postgres_changes',
@@ -166,11 +185,15 @@ export const LiveAuction: React.FC = () => {
                 (payload) => {
                     if (payload.new.status === 'LIVE') {
                         setIsUpcoming(false);
-                        setTimeLeft(20 * 60);
+                        const start = new Date(payload.new.auction_date);
+                        const durationMins = schemeData?.auction_duration_mins || 20;
+                        const end = new Date(start.getTime() + durationMins * 60000);
+                        const diff = Math.floor((end.getTime() - new Date().getTime()) / 1000);
+                        setTimeLeft(diff > 0 ? diff : 0);
                     }
                     if (payload.new.status === 'COMPLETED') {
                         setAuctionEnded(true);
-                        handleEndAuction(); // Refresh details
+                        handleEndAuction(auctionData.id, true); 
                     }
                 }
             )
@@ -179,71 +202,52 @@ export const LiveAuction: React.FC = () => {
         return () => { supabase.removeChannel(channel); };
     }, [auctionData, schemeData]);
 
-    // --- 3. SYSTEM AUTO-BIDDER (OWNER SIDE) ---
+    // --- 3. TIMER LOGIC ---
     useEffect(() => {
-        // Runs only when LIVE. Proxies are set during UPCOMING/LIVE.
-        if (!isOwner || isUpcoming || auctionEnded || activeProxies.length === 0) return;
-
-        const runAutoBidder = async () => {
-            const eligibleProxies = activeProxies.filter(p => 
-                p.maxAmount > currentBid && 
-                p.enrollmentId !== lastBidderEnrollmentId
-            );
-
-            if (eligibleProxies.length > 0) {
-                const step = 100;
-                const nextBid = currentBid + step;
-
-                // Pick the proxy with the highest limit
-                eligibleProxies.sort((a, b) => b.maxAmount - a.maxAmount);
-                const winnerProxy = eligibleProxies[0];
-
-                if (nextBid <= winnerProxy.maxAmount) {
-                    setTimeout(async () => {
-                        console.log(`[System] Auto-bidding for ${winnerProxy.subscriberName} @ ${nextBid}`);
-                        await placeBidForEnrollment(nextBid, winnerProxy.enrollmentId, true);
-                    }, 1500); 
-                }
-            }
-        };
-
-        runAutoBidder();
-    }, [currentBid, activeProxies, isOwner, isUpcoming, auctionEnded, lastBidderEnrollmentId]);
-
-
-    // --- 4. TIMER ---
-    useEffect(() => {
-        if (auctionEnded) return;
-        timerRef.current = setInterval(() => {
+        if (auctionEnded || isTimeUp) return;
+        const interval = setInterval(() => {
             setTimeLeft(prev => {
-                if (prev <= 1) {
-                    if (isUpcoming) {
-                        setIsUpcoming(false);
-                        return 20 * 60; 
-                    } else {
-                        // If owner, finalize. If subscriber, just wait for signal.
-                        if (isOwner) handleEndAuction();
-                        return 0;
-                    }
-                }
+                if (prev <= 1) return 0;
                 return prev - 1;
             });
         }, 1000);
-        return () => clearInterval(timerRef.current);
-    }, [auctionEnded, isUpcoming, isOwner]);
+        return () => clearInterval(interval);
+    }, [auctionEnded, isTimeUp]);
 
-    // --- 5. HELPERS & ACTIONS ---
+    useEffect(() => {
+        if (!isUpcoming && !auctionEnded && !isTimeUp && timeLeft === 0 && auctionData) {
+            setIsTimeUp(true);
+            if (isOwner && !finalizationTriggered.current) {
+                finalizationTriggered.current = true;
+                handleEndAuction(auctionData.id); 
+            }
+        }
+    }, [timeLeft, isUpcoming, auctionEnded, isTimeUp, isOwner, auctionData]);
 
-    const placeBidForEnrollment = async (amount: number, enrollmentId: string, isSystemProxy = false) => {
-        const maxAllowed = schemeData?.discountMax || (schemeData?.chitValue * 0.4);
-        if (amount > maxAllowed) return alert(`Bid exceeds maximum discount limit (₹${maxAllowed}).`);
+
+    // --- 4. ACTIONS ---
+
+    const placeBidForEnrollment = async (amount: number, enrollmentId: string) => {
+        if (isTimeUp) return alert("Auction time has ended!");
+        
+        // Validation: New bid must be LOWER than current bid (Reverse Auction)
+        if (amount >= currentBid) {
+            return alert(`You must bid lower than the current prize amount (₹${currentBid}).`);
+        }
+
+        // Check Max Discount limit (which means Min Prize Amount)
+        // Max Discount = 40%. So Min Prize = 60%.
+        const minPrizeAllowed = (schemeData?.chitValue || 0) * 0.6;
+        if (amount < minPrizeAllowed) {
+            return alert(`Bid cannot be lower than ₹${minPrizeAllowed} (Max 40% discount limit).`);
+        }
 
         try {
             await supabase.from('bids').insert([{
                 auction_id: auctionData?.id,
                 enrollment_id: enrollmentId,
                 amount: amount,
-                bid_type: isSystemProxy ? 'PROXY' : 'ONLINE'
+                bid_type: 'ONLINE'
             }]);
         } catch (error: any) {
             console.error("Bid failed", error);
@@ -253,13 +257,12 @@ export const LiveAuction: React.FC = () => {
     const handleOwnerAddProxy = async () => {
         if (!selectedProxySub || !proxyLimitAmount || !auctionData) return;
         try {
-            // This relies on the new RLS policy for owners
             await api.setProxyBidLimit(auctionData.id, selectedProxySub, parseFloat(proxyLimitAmount));
             const proxies = await api.getAuctionProxies(auctionData.id);
             setActiveProxies(proxies);
             setIsProxyModalOpen(false);
             setProxyLimitAmount('');
-            alert("Proxy Configured. System will auto-bid once auction starts.");
+            alert("Proxy Configured.");
         } catch (e: any) {
             alert("Failed to set proxy: " + e.message);
         }
@@ -268,41 +271,48 @@ export const LiveAuction: React.FC = () => {
     const handleForceStart = async () => {
         if (!auctionData || !isOwner) return;
         if (!confirm("Start auction now?")) return;
-        await supabase.from('auctions').update({ status: 'LIVE', auction_date: new Date().toISOString() }).eq('id', auctionData.id);
+        
+        await supabase.from('auctions').update({ 
+            status: 'LIVE', 
+            auction_date: new Date().toISOString() 
+        }).eq('id', auctionData.id);
     };
 
-    const handleEndAuction = async () => {
-        if (!isOwner) return;
-        setAuctionEnded(true);
-        clearInterval(timerRef.current);
-        if (auctionData) {
+    const handleEndAuction = async (aucId: string, onlyFetchDetails = false) => {
+        if (!onlyFetchDetails && isOwner) {
             try {
-                const { data, error } = await supabase.rpc('finalize_auction', { p_scheme_id: id });
-                if (error) throw error;
-                if (data && data.length > 0) {
-                    const winner = data[0];
-                    const { data: winProfile } = await supabase.from('scheme_enrollments').select('profiles(full_name)').eq('id', winner.winner_id).single();
-                    const profileData: any = winProfile?.profiles;
-                    const winnerName = Array.isArray(profileData) ? profileData[0]?.full_name : profileData?.full_name;
-
-                    setWinnerDetails({
-                        type: 'HIGHEST_BIDDER',
-                        winnerName: winnerName || `Ticket #${winner.ticket_id}`,
-                        amount: winner.winning_amount,
-                        prize: (schemeData?.chitValue || 0) - winner.winning_amount
-                    });
-                }
+                await supabase.rpc('finalize_auction', { p_scheme_id: id });
             } catch (err) { console.error("Finalization error", err); }
         }
+
+        const fetchWinner = async () => {
+            const { data: auction } = await supabase.from('auctions').select('*').eq('id', aucId).single();
+            if (auction && auction.winner_enrollment_id) {
+                const { data: winProfile } = await supabase.from('scheme_enrollments').select('profiles(full_name)').eq('id', auction.winner_enrollment_id).single();
+                const profileData: any = winProfile?.profiles;
+                const winnerName = Array.isArray(profileData) ? profileData[0]?.full_name : profileData?.full_name;
+
+                setWinnerDetails({
+                    type: 'HIGHEST_DISCOUNT',
+                    winnerName: winnerName || 'Unknown',
+                    amount: (schemeData?.chitValue || 0) - auction.winning_bid, // Display Discount
+                    prize: auction.winning_bid // Display Prize
+                });
+                setAuctionEnded(true);
+            }
+        }
+        
+        if(!onlyFetchDetails) setTimeout(fetchWinner, 1000);
+        else fetchWinner();
     };
 
     const formatTime = (totalSeconds: number) => {
-        const hours = Math.floor(totalSeconds / 3600);
-        const minutes = Math.floor((totalSeconds % 3600) / 60);
+        const minutes = Math.floor(totalSeconds / 60);
         const seconds = totalSeconds % 60;
-        if (hours > 0) return `${hours}h ${minutes}m`;
         return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
     };
+
+    if (isLoading) return <div className="flex h-screen items-center justify-center"><Loader2 className="animate-spin text-blue-500" size={32}/></div>;
 
     if (auctionEnded) {
         return (
@@ -313,15 +323,12 @@ export const LiveAuction: React.FC = () => {
                     <p className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">Winner</p>
                     <h2 className="text-2xl font-bold text-blue-600 mb-4">{winnerDetails?.winnerName || "Processing..."}</h2>
                     <div className="border-t border-gray-200 pt-4 grid grid-cols-2 gap-4">
-                        <div><p className="text-xs text-gray-500">Discount</p><p className="font-bold text-lg">₹{winnerDetails?.amount?.toLocaleString()}</p></div>
+                        <div><p className="text-xs text-gray-500">Discount Taken</p><p className="font-bold text-lg">₹{winnerDetails?.amount?.toLocaleString()}</p></div>
                         <div><p className="text-xs text-gray-500">Prize Amount</p><p className="font-bold text-lg text-green-600">₹{winnerDetails?.prize?.toLocaleString()}</p></div>
                     </div>
                 </div>
                 <div className="flex gap-4 mt-8">
                     <button onClick={() => navigate(`/schemes/${id}/auctions`)} className="bg-white border border-gray-300 text-gray-700 px-6 py-3 rounded-lg font-bold hover:bg-gray-50 transition-all">Back to List</button>
-                    {(auctionData?.auctionNumber || 0) < (schemeData?.duration || 0) && (
-                        <button onClick={() => window.location.reload()} className="bg-blue-600 text-white px-6 py-3 rounded-lg font-bold hover:bg-blue-700 shadow-lg flex items-center gap-2">Next Auction <ArrowRight size={16} /></button>
-                    )}
                 </div>
             </div>
         );
@@ -356,24 +363,25 @@ export const LiveAuction: React.FC = () => {
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 flex-1 min-h-0">
-                {/* Left Column: Stats & Controls */}
+                {/* Left Column */}
                 <div className="lg:col-span-2 flex flex-col gap-6">
-                    {/* Display Card */}
                     <div className="bg-gradient-to-br from-blue-600 to-blue-800 rounded-2xl p-8 text-white shadow-xl relative overflow-hidden transition-all group">
                         <div className="flex justify-between items-start relative z-10">
-                            <div><p className="text-blue-100 font-medium mb-1 flex items-center gap-2"><Gavel size={18} /> Current Highest Bid</p><h2 className="text-6xl font-bold tracking-tight mt-2 drop-shadow-md">₹{currentBid.toLocaleString()}</h2></div>
+                            <div>
+                                <p className="text-blue-100 font-medium mb-1 flex items-center gap-2"><Gavel size={18} /> Current Prize Amount</p>
+                                <h2 className="text-6xl font-bold tracking-tight mt-2 drop-shadow-md">₹{currentBid.toLocaleString()}</h2>
+                                <p className="text-sm text-blue-200 mt-2 opacity-80">Discount: ₹{(schemeData?.chitValue - currentBid).toLocaleString()}</p>
+                            </div>
                             <div className="text-right"><p className="text-blue-200 text-sm">Chit Value</p><p className="font-bold text-xl">₹{schemeData?.chitValue?.toLocaleString() || '0'}</p></div>
                         </div>
                         <div className="mt-8 pt-8 border-t border-blue-500/30 flex items-center gap-4 relative z-10">
                             <div className="w-12 h-12 rounded-full bg-white/20 flex items-center justify-center font-bold text-lg shadow-inner">{lastBidderName.charAt(0)}</div>
-                            <div><p className="text-sm text-blue-200">Latest Bidder</p><p className="font-bold text-xl flex items-center gap-2">{lastBidderName} {lastBidderEnrollmentId === myEnrollmentId && <span className="text-xs bg-white text-blue-600 px-2 py-0.5 rounded-full">YOU</span>} {bids[0]?.isProxy && <Zap size={16} className="text-yellow-400 fill-current" />}</p></div>
+                            <div><p className="text-sm text-blue-200">Current Lowest Bidder</p><p className="font-bold text-xl flex items-center gap-2">{lastBidderName}</p></div>
                         </div>
                     </div>
 
-                    {/* Controls Section - Logic Fixed to Show Owner Controls Anytime */}
                     <div className="bg-white p-6 rounded-xl border border-gray-100 shadow-sm flex-1 flex flex-col justify-center items-center gap-4 relative">
                         {isOwner ? (
-                            // OWNER VIEW: Always show controls, even in UPCOMING
                             <div className="w-full">
                                 <div className="bg-purple-50 border border-purple-200 rounded-xl p-4 mb-4">
                                     <div className="flex justify-between items-center mb-2">
@@ -385,29 +393,28 @@ export const LiveAuction: React.FC = () => {
                                     <div className="flex justify-between items-end">
                                         <div>
                                             <p className="text-xs text-purple-600 mb-1">Active Proxies: {activeProxies.length}</p>
-                                            <div className="text-[10px] text-gray-500 italic">System will auto-bid once auction is LIVE.</div>
+                                            <div className="text-[10px] text-gray-500 italic">Auto-bids to decrease prize amount.</div>
                                         </div>
-                                        {isUpcoming && <div className="text-xs font-bold text-orange-500 bg-orange-50 px-2 py-1 rounded">Auction not started</div>}
                                     </div>
                                 </div>
                             </div>
                         ) : (
-                            // SUBSCRIBER VIEW: Only show bid controls if LIVE
                             <>
                                 {isUpcoming ? (
                                     <div className="text-center w-full max-w-lg mb-4">
                                         <div className="w-16 h-16 bg-blue-50 text-blue-500 rounded-full flex items-center justify-center mx-auto mb-4 animate-pulse"><Clock size={32}/></div>
                                         <h3 className="font-bold text-gray-800 mb-2">Auction starts in {formatTime(timeLeft)}</h3>
-                                        <p className="text-sm text-gray-500">Please wait for the foreman to start the auction.</p>
+                                        <p className="text-sm text-gray-500">Waiting for foreman...</p>
                                     </div>
                                 ) : (
                                     <div className="w-full">
-                                        <h3 className="font-bold text-gray-800 mb-4 text-center">Place Your Bid</h3>
+                                        <h3 className="font-bold text-gray-800 mb-4 text-center">I am willing to take the prize for...</h3>
                                         <div className="flex gap-4 w-full max-w-lg mx-auto">
-                                            <button onClick={() => placeBidForEnrollment(currentBid + 100, myEnrollmentId!)} className="flex-1 bg-blue-50 text-blue-700 border border-blue-100 font-bold py-4 rounded-xl hover:bg-blue-100 active:scale-95 transition-all">+ ₹100</button>
-                                            <button onClick={() => placeBidForEnrollment(currentBid + 500, myEnrollmentId!)} className="flex-1 bg-blue-50 text-blue-700 border border-blue-100 font-bold py-4 rounded-xl hover:bg-blue-100 active:scale-95 transition-all">+ ₹500</button>
-                                            <button onClick={() => placeBidForEnrollment(currentBid + 1000, myEnrollmentId!)} className="flex-1 bg-blue-600 text-white font-bold py-4 rounded-xl hover:bg-blue-700 shadow-lg active:scale-95 transition-all">+ ₹1,000</button>
+                                            <button onClick={() => placeBidForEnrollment(currentBid - 100, myEnrollmentId!)} className="flex-1 bg-red-50 text-red-700 border border-red-100 font-bold py-4 rounded-xl hover:bg-red-100 active:scale-95 transition-all">- ₹100</button>
+                                            <button onClick={() => placeBidForEnrollment(currentBid - 500, myEnrollmentId!)} className="flex-1 bg-red-50 text-red-700 border border-red-100 font-bold py-4 rounded-xl hover:bg-red-100 active:scale-95 transition-all">- ₹500</button>
+                                            <button onClick={() => placeBidForEnrollment(currentBid - 1000, myEnrollmentId!)} className="flex-1 bg-red-600 text-white font-bold py-4 rounded-xl hover:bg-red-700 shadow-lg active:scale-95 transition-all">- ₹1,000</button>
                                         </div>
+                                        <p className="text-xs text-center text-gray-400 mt-2">Clicking reduces the current prize amount by the selected value.</p>
                                     </div>
                                 )}
                             </>
@@ -415,10 +422,10 @@ export const LiveAuction: React.FC = () => {
                     </div>
                 </div>
 
-                {/* Right Column: Feed */}
+                {/* Right Column */}
                 <div className="flex flex-col gap-6 h-full min-h-0">
                     <div className="bg-white rounded-xl border border-gray-100 shadow-sm flex flex-col flex-1 min-h-0 overflow-hidden">
-                        <div className="p-4 border-b border-gray-100 bg-gray-50/50 flex justify-between items-center"><h3 className="font-bold text-gray-800 text-sm">Live Bid Log</h3><Users size={16} className="text-gray-400" /></div>
+                        <div className="p-4 border-b border-gray-100 bg-gray-50/50 flex justify-between items-center"><h3 className="font-bold text-gray-800 text-sm">Live Bid Log (Lowest First)</h3><Users size={16} className="text-gray-400" /></div>
                         <div className="overflow-y-auto flex-1 p-2 space-y-2 custom-scrollbar">
                             {bids.map((bid, index) => (
                                 <div key={bid.id} className={`p-3 rounded-lg border flex justify-between items-center ${index === 0 ? 'bg-blue-50 border-blue-100 animate-in slide-in-from-top-2 duration-300' : 'bg-white border-gray-100'}`}>
@@ -438,7 +445,7 @@ export const LiveAuction: React.FC = () => {
             {/* Owner Proxy Modal */}
             <Modal isOpen={isProxyModalOpen} onClose={() => setIsProxyModalOpen(false)} title="Configure Offline Proxy" maxWidth="max-w-md">
                 <div className="space-y-4">
-                    <p className="text-sm text-gray-600">Select an offline subscriber to place bids on their behalf automatically during the live auction.</p>
+                    <p className="text-sm text-gray-600">Select an offline subscriber. The system will automatically place bids for them to LOWER the prize amount until the limit you set.</p>
                     
                     <div>
                         <label className="text-xs font-bold text-gray-500 mb-1 block">Select Subscriber</label>
@@ -450,7 +457,8 @@ export const LiveAuction: React.FC = () => {
                         </select>
                     </div>
 
-                    <Input label="Max Bid Limit (₹)" type="number" value={proxyLimitAmount} onChange={(e) => setProxyLimitAmount(e.target.value)} placeholder="e.g. 15000" />
+                    <Input label="Min Prize Amount (₹) Limit" type="number" value={proxyLimitAmount} onChange={(e) => setProxyLimitAmount(e.target.value)} placeholder="e.g. 70000" />
+                    <p className="text-[10px] text-gray-400">The bot will stop bidding if the prize goes below this amount.</p>
                     
                     <div className="flex justify-end gap-3 pt-4">
                         <Button variant="outline" onClick={() => setIsProxyModalOpen(false)}>Cancel</Button>
@@ -464,7 +472,7 @@ export const LiveAuction: React.FC = () => {
                                 {activeProxies.map(p => (
                                     <div key={p.id} className="flex justify-between items-center text-sm bg-gray-50 p-2 rounded border border-gray-100">
                                         <span className="font-medium text-gray-700">{p.subscriberName || 'Unknown'}</span>
-                                        <span className="font-mono font-bold text-purple-600">Max: ₹{p.maxAmount}</span>
+                                        <span className="font-mono font-bold text-purple-600">Min: ₹{p.maxAmount}</span>
                                     </div>
                                 ))}
                             </div>

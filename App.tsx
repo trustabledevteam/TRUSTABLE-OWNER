@@ -24,7 +24,7 @@ import { LandingPage } from './pages/LandingPage';
 import { Notifications } from './pages/Notifications';
 import { Leads } from './pages/Leads';
 import { AdminVerify } from './pages/AdminVerify';
-import { PublicJoinScheme } from './pages/PublicJoinScheme'; // Import the new page
+import { PublicJoinScheme } from './pages/PublicJoinScheme';
 import { X, Loader2, AlertTriangle, Lock, RefreshCw } from 'lucide-react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { supabase } from './services/supabaseClient';
@@ -38,14 +38,13 @@ const Placeholder = ({ title }: { title: string }) => (
 
 const AuthLogin = () => {
   const navigate = useNavigate();
-  const { session, isLoading: isAuthLoading } = useAuth(); // Get auth state
+  const { session, isLoading: isAuthLoading } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
   useEffect(() => {
-    // Redirect if session exists (handles both successful login and already logged-in users)
     if (session) {
       navigate('/dashboard', { replace: true });
     }
@@ -56,6 +55,7 @@ const AuthLogin = () => {
     setError('');
     
     try {
+        // Fix: Use signInWithPassword for v2
         const { data, error } = await supabase.auth.signInWithPassword({
             email,
             password
@@ -64,12 +64,9 @@ const AuthLogin = () => {
         if (error) {
             setError(error.message);
         } else if (data.user && !data.session) {
-            // This case specifically handles required email confirmation.
             setError("Please check your email to confirm your account before logging in.");
         }
-        // On success (data.session is not null), the onAuthStateChange listener 
-        // will fire, updating the session in AuthContext, which triggers the 
-        // useEffect in this component to navigate.
+        // Success handled by AuthContext listener
         setLoading(false);
     } catch (e: any) {
         setError(e.message || "An unexpected network error occurred.");
@@ -77,7 +74,6 @@ const AuthLogin = () => {
     }
   };
 
-  // Show a loader while the AuthProvider is checking for an existing session
   if (isAuthLoading) {
     return <div className="h-screen flex items-center justify-center"><Loader2 className="animate-spin text-blue-500 w-8 h-8"/></div>;
   }
@@ -146,13 +142,11 @@ const VerificationBanner = () => {
     const handleCheckStatus = async () => {
         if (isChecking) return;
         setIsChecking(true);
-        // Minimum delay to show the user that action is happening
         const minDelay = new Promise(resolve => setTimeout(resolve, 800));
         await Promise.all([refreshProfile(), minDelay]);
         setIsChecking(false);
     };
     
-    // This banner should only show if we have a loaded profile and its status is not 'APPROVED'.
     if (isLoading || !profile || profile.verification_status === 'APPROVED') {
         return null;
     }
@@ -212,7 +206,7 @@ const App = () => {
             <Route path="/" element={<LandingPage />} />
             <Route path="/login" element={<AuthLogin />} />
             <Route path="/register" element={<Register />} />
-            <Route path="/join/:schemeId" element={<PublicJoinScheme />} /> {/* New Public Route */}
+            <Route path="/join/:schemeId" element={<PublicJoinScheme />} />
             
             <Route element={<ProtectedRoute />}>
                 <Route path="/dashboard" element={<Dashboard />} />

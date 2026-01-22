@@ -21,6 +21,7 @@ export const Auctions: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'upcoming' | 'completed'>('upcoming');
   const [auctions, setAuctions] = useState<Auction[]>([]);
   const [loading, setLoading] = useState(true);
+  const [schemeDetails, setSchemeDetails] = useState<any>(null);
   
   // Edit Modal State
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
@@ -38,7 +39,9 @@ export const Auctions: React.FC = () => {
       setLoading(true);
       try {
           const auctionData = await api.getAuctions(schemeId);
+          const scheme = await api.getSchemeDetails(schemeId);
           setAuctions(auctionData);
+          setSchemeDetails(scheme);
       } catch (error) {
           console.error("Failed to load auctions:", error);
       } finally {
@@ -54,13 +57,11 @@ export const Auctions: React.FC = () => {
 
     if (auction.rawDate) {
         const d = auction.rawDate;
-        // Get local date components to avoid timezone shifts
         const year = d.getFullYear();
         const month = (d.getMonth() + 1).toString().padStart(2, '0');
         const day = d.getDate().toString().padStart(2, '0');
         dateForInput = `${year}-${month}-${day}`;
 
-        // Get local time components
         const hours = d.getHours().toString().padStart(2, '0');
         const minutes = d.getMinutes().toString().padStart(2, '0');
         timeForInput = `${hours}:${minutes}`;
@@ -93,12 +94,34 @@ export const Auctions: React.FC = () => {
     }
   };
 
-  // Filter Logic
-  const completedAuctions = auctions.filter(a => a.status === 'COMPLETED');
-  // Upcoming includes scheduled future auctions AND current live ones
-  const upcomingAuctions = auctions.filter(a => a.status === 'UPCOMING' || a.status === 'LIVE');
+  // --- Strict Time Filtering ---
+  const now = new Date();
   
-  // The very next auction to show prominently
+  const filterAuctions = (type: 'upcoming' | 'completed') => {
+      if (!schemeDetails) return [];
+      const durationMins = schemeDetails.auctionDuration || 20;
+
+      return auctions.filter(a => {
+          if (!a.rawDate) return false;
+          
+          const startTime = new Date(a.rawDate);
+          const endTime = new Date(startTime.getTime() + durationMins * 60000);
+          
+          // Check if technically expired (Time is up) regardless of DB status tag
+          const isExpired = now > endTime;
+          
+          if (type === 'completed') {
+              // Show if marked completed OR time has passed
+              return a.status === 'COMPLETED' || isExpired;
+          } else {
+              // Show if Upcoming OR Live (and not yet expired)
+              return (a.status === 'UPCOMING' || a.status === 'LIVE') && !isExpired;
+          }
+      });
+  };
+
+  const completedAuctions = filterAuctions('completed');
+  const upcomingAuctions = filterAuctions('upcoming');
   const nextAuction = upcomingAuctions.length > 0 ? upcomingAuctions[0] : null;
 
   return (

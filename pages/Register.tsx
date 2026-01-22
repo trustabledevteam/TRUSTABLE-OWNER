@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Upload, CheckCircle, ArrowRight, ArrowLeft, Clock, Loader2, AlertCircle } from 'lucide-react';
@@ -93,12 +92,17 @@ export const Register: React.FC<RegisterProps> = ({ onRegisterSuccess }) => {
 
       setLoading(true); setError(null);
       try {
+          // v2 syntax: signUp({email, password, options: {data: ...}})
           const { data, error } = await supabase.auth.signUp({
               email: formData.email,
               password: formData.password,
-              options: { data: { full_name: formData.username } }
+              options: {
+                  data: { full_name: formData.username }
+              }
           });
+          
           if (error) throw error;
+          
           if (data.user) {
               setUserId(data.user.id);
               if (data.session) {

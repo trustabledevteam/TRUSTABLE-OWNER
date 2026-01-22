@@ -1,4 +1,3 @@
-
 import express from 'express';
 import cors from 'cors';
 import { createClient } from '@supabase/supabase-js';
@@ -27,7 +26,9 @@ const requireAuth = async (req: any, res: any, next: any) => {
   const token = req.headers.authorization?.split(' ')[1];
   if (!token) return res.status(401).json({ error: 'Missing token' });
 
+  // v2 auth check: Use getUser to validate the token
   const { data: { user }, error } = await supabase.auth.getUser(token);
+  
   if (error || !user) {
       return res.status(401).json({ error: 'Invalid token' });
   }

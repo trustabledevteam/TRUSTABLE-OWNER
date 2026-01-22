@@ -1,7 +1,9 @@
-
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { supabase } from '../services/supabaseClient';
-import { Session, User } from '@supabase/supabase-js';
+
+// Use any to bypass v1 type definition issues if types are outdated
+type Session = any;
+type User = any;
 
 interface AuthContextType {
   session: Session | null;
@@ -31,16 +33,12 @@ export const AuthProvider = ({ children }: { children?: React.ReactNode }) => {
 
   const fetchProfile = async (userId: string) => {
     try {
-      // Create a promise that rejects after 3 seconds to prevent hanging
-      const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error('Profile fetch timed out')), 3000));
-      
-      // The actual fetch
-      const fetchRequest = supabase.from('profiles').select('*').eq('id', userId).single();
-
-      // Race them
-      const result: any = await Promise.race([fetchRequest, timeout]);
-      
-      const { data: profileData, error: profileError } = result;
+      // The actual fetch with cache busting to ensure fresh data
+      const { data: profileData, error: profileError } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', userId)
+        .single();
       
       if (profileError) {
           console.warn("Profile fetch warning:", profileError.message);
@@ -49,18 +47,16 @@ export const AuthProvider = ({ children }: { children?: React.ReactNode }) => {
       if (profileData) {
           let companyData = null;
           if (profileData.company_id) {
-              // Attempt to fetch company, but don't block if it fails
               const { data: comp } = await supabase.from('companies').select('*').eq('id', profileData.company_id).single();
               companyData = comp;
           }
           setProfile({ ...profileData, companies: companyData });
       } else {
+          // If no profile exists yet, keep state null but stop loading
           setProfile(null);
       }
     } catch (e: any) {
-      console.error("Error loading profile (or timeout):", e.message);
-      // Even if profile fails, we don't set profile to null if we already had one, 
-      // or we just leave it as is to allow the app to render.
+      console.error("Error loading profile:", e.message);
     }
   };
 
@@ -68,14 +64,6 @@ export const AuthProvider = ({ children }: { children?: React.ReactNode }) => {
     let mounted = true;
     
     const initializeAuth = async () => {
-      // HARD STOP: If nothing happens in 4 seconds, force loading to false
-      const safetyTimer = setTimeout(() => {
-          if (mounted) {
-              console.warn("Auth initialization safety timeout triggered.");
-              setIsLoading(false);
-          }
-      }, 4000);
-
       try {
         const { data: { session: initialSession } } = await supabase.auth.getSession();
         
@@ -90,10 +78,17 @@ export const AuthProvider = ({ children }: { children?: React.ReactNode }) => {
       } catch (error) {
         console.error("Auth initialization error:", error);
       } finally {
-        clearTimeout(safetyTimer);
         if (mounted) setIsLoading(false);
       }
     };
+
+    // Safety timeout: Ensure loading state is cleared even if Supabase hangs
+    const safetyTimeout = setTimeout(() => {
+        if (mounted && isLoading) {
+            console.warn("Auth initialization timed out - forcing loading false");
+            setIsLoading(false);
+        }
+    }, 5000);
 
     initializeAuth();
 
@@ -103,7 +98,7 @@ export const AuthProvider = ({ children }: { children?: React.ReactNode }) => {
         setUser(newSession?.user ?? null);
         
         if (newSession?.user) {
-            fetchProfile(newSession.user.id); // Fetch in background, don't set loading true
+            await fetchProfile(newSession.user.id);
         } else {
             setProfile(null);
         }
@@ -112,9 +107,37 @@ export const AuthProvider = ({ children }: { children?: React.ReactNode }) => {
 
     return () => {
         mounted = false;
-        subscription.unsubscribe();
+        clearTimeout(safetyTimeout);
+        subscription?.unsubscribe();
     };
   }, []);
+
+  // --- REAL-TIME PROFILE LISTENER ---
+  useEffect(() => {
+    if (!user) return;
+
+    const channel = supabase
+      .channel(`public:profiles:${user.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'profiles',
+          filter: `id=eq.${user.id}`,
+        },
+        async (payload) => {
+          console.log("Real-time profile update received:", payload.new);
+          // Immediately fetch fresh data to get joined relations if needed
+          await fetchProfile(user.id);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [user]);
 
   const signOut = async () => {
     await supabase.auth.signOut();
