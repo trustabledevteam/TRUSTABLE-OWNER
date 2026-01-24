@@ -289,10 +289,22 @@ export const api = {
   },
 
   updateAuction: async (auctionId: string, schemeId: string, updates: any) => {
+      // Robust Date Construction
+      if (!updates.date || !updates.time) {
+          throw new Error("Date and Time are required.");
+      }
+
+      // Ensure YYYY-MM-DD and HH:MM format
       const localDate = new Date(`${updates.date}T${updates.time}:00`);
+      
+      if (isNaN(localDate.getTime())) {
+          throw new Error("Invalid Date/Time format provided.");
+      }
+
       const { error } = await supabase.from('auctions').update({
           auction_date: localDate.toISOString()
       }).eq('id', auctionId);
+      
       if (error) throw error;
   },
 

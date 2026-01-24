@@ -55,7 +55,7 @@ export const Auctions: React.FC = () => {
     let dateForInput = '';
     let timeForInput = '10:00';
 
-    if (auction.rawDate) {
+    if (auction.rawDate && !isNaN(auction.rawDate.getTime())) {
         const d = auction.rawDate;
         const year = d.getFullYear();
         const month = (d.getMonth() + 1).toString().padStart(2, '0');
@@ -77,20 +77,28 @@ export const Auctions: React.FC = () => {
   const handleUpdateAuction = async () => {
     if (!editingAuction || !id) return;
     
+    // Validate inputs BEFORE starting loader
+    if (!editForm.date || !editForm.time) {
+        alert("Please select both a date and time for the auction.");
+        return;
+    }
+
     setIsUpdating(true);
     try {
         await api.updateAuction(editingAuction.id, id, {
             date: editForm.date,
             time: editForm.time
         });
+        
         alert("Auction updated successfully!");
         setIsEditModalOpen(false);
-        await loadData(id);
+        await loadData(id); 
     } catch (e: any) {
         console.error("Failed to update auction", e);
         alert("Error: " + e.message);
     } finally {
-        setIsUpdating(false);
+        // CRITICAL: Ensure loader always stops
+        setIsUpdating(false); 
     }
   };
 

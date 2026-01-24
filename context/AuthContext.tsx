@@ -63,6 +63,15 @@ export const AuthProvider = ({ children }: { children?: React.ReactNode }) => {
   useEffect(() => {
     let mounted = true;
     
+    // SAFETY VALVE: If Supabase takes longer than 5 seconds, force stop loading
+    // This prevents the "Infinite Loading" screen if the network hangs
+    const safetyTimeout = setTimeout(() => {
+        if (mounted && isLoading) {
+            console.warn("Auth initialization timed out - forcing loading false");
+            setIsLoading(false);
+        }
+    }, 5000);
+
     const initializeAuth = async () => {
       try {
         const { data: { session: initialSession } } = await supabase.auth.getSession();
@@ -78,17 +87,13 @@ export const AuthProvider = ({ children }: { children?: React.ReactNode }) => {
       } catch (error) {
         console.error("Auth initialization error:", error);
       } finally {
-        if (mounted) setIsLoading(false);
+        // ALWAYS stop loading, success or failure
+        if (mounted) {
+            setIsLoading(false);
+            clearTimeout(safetyTimeout);
+        }
       }
     };
-
-    // Safety timeout: Ensure loading state is cleared even if Supabase hangs
-    const safetyTimeout = setTimeout(() => {
-        if (mounted && isLoading) {
-            console.warn("Auth initialization timed out - forcing loading false");
-            setIsLoading(false);
-        }
-    }, 5000);
 
     initializeAuth();
 
@@ -128,7 +133,6 @@ export const AuthProvider = ({ children }: { children?: React.ReactNode }) => {
         },
         async (payload) => {
           console.log("Real-time profile update received:", payload.new);
-          // Immediately fetch fresh data to get joined relations if needed
           await fetchProfile(user.id);
         }
       )

@@ -15,8 +15,8 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_KEY || '' // This MUST be set in your environment variables
 );
 
-// Initialize Auction Engine
-const auctionEngine = new AuctionEngine(httpServer, supabase);
+// Initialize Auction Engine (Purely via Supabase Realtime)
+const auctionEngine = new AuctionEngine(supabase);
 
 app.use(cors());
 app.use(express.json() as any);
@@ -61,13 +61,10 @@ app.post('/api/company/setup', requireAuth, async (req: any, res) => {
 app.post('/api/schemes', requireAuth, async (req: any, res) => {
   const { name, chitValue, members, duration, monthlyDue } = req.body;
   
-  // Fetch company_id (Assuming 1 company per user for MVP)
-  // For demo, if no profile, we just create scheme without company link or use a default
-  
   const { data, error } = await supabase
     .from('schemes')
     .insert([{
-      // company_id: profile.company_id, // Add this when company flow is fully active
+      owner_id: req.user.id,
       name,
       chit_value: chitValue,
       members_count: members,
@@ -147,15 +144,10 @@ app.post('/api/collections/record', requireAuth, async (req: any, res) => {
 
   if (error) return res.status(400).json(error);
 
-  // 2. Update Enrollment Balance (Simplified)
-  // In real app, perform calculation
-  await supabase.from('scheme_enrollments').update({ 
-      // total_paid: amount // Increment logic needed
-  }).eq('id', enrollmentId);
-
   res.json(txn);
 });
 
 httpServer.listen(PORT, () => {
   console.log(`TRUSTABLE Backend running on port ${PORT}`);
+  console.log(`[System] Socket.IO disabled. Using Supabase Realtime exclusively.`);
 });
