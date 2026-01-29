@@ -31,7 +31,7 @@ export const AuthProvider = ({ children }: { children?: React.ReactNode }) => {
   const [profile, setProfile] = useState<any | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  const fetchProfile = async (userId: string) => {
+const fetchProfile = async (userId: string) => {
     try {
       // The actual fetch with cache busting to ensure fresh data
       const { data: profileData, error: profileError } = await supabase
@@ -41,7 +41,10 @@ export const AuthProvider = ({ children }: { children?: React.ReactNode }) => {
         .single();
       
       if (profileError) {
-          console.warn("Profile fetch warning:", profileError.message);
+          // It's okay if no row is found, so we can be less noisy about that specific error.
+          if (profileError.code !== 'PGRST116') {
+             console.warn("Profile fetch warning:", profileError.message);
+          }
       }
       
       if (profileData) {
@@ -52,7 +55,7 @@ export const AuthProvider = ({ children }: { children?: React.ReactNode }) => {
           }
           setProfile({ ...profileData, companies: companyData });
       } else {
-          // If no profile exists yet, keep state null but stop loading
+          // If no profile exists yet, keep state null
           setProfile(null);
       }
     } catch (e: any) {
@@ -60,87 +63,63 @@ export const AuthProvider = ({ children }: { children?: React.ReactNode }) => {
     }
   };
 
+  // Main Authentication Effect Hook
   useEffect(() => {
+    console.log("[AUTH DEBUG] AuthProvider useEffect RUNS (mounts).");
     let mounted = true;
-    
-    // SAFETY VALVE: If Supabase takes longer than 5 seconds, force stop loading
-    // This prevents the "Infinite Loading" screen if the network hangs
-    const safetyTimeout = setTimeout(() => {
-        if (mounted && isLoading) {
-            console.warn("Auth initialization timed out - forcing loading false");
-            setIsLoading(false);
-        }
-    }, 5000);
+    setIsLoading(true);
 
-    const initializeAuth = async () => {
-      try {
-        const { data: { session: initialSession } } = await supabase.auth.getSession();
+    console.log("[AUTH DEBUG] Subscribing to onAuthStateChange...");
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+        console.log(`%c[AUTH DEBUG] <-- onAuthStateChange CALLBACK FIRED. Event: ${_event}, Session exists: ${!!session}`, 'font-weight: bold; color: purple;');
         
-        if (mounted) {
-          setSession(initialSession);
-          setUser(initialSession?.user ?? null);
-          
-          if (initialSession?.user) {
-            await fetchProfile(initialSession.user.id);
-          }
+        if (!mounted) {
+            console.log("[AUTH DEBUG] Callback fired but component is unmounted. Aborting state updates.");
+            return;
         }
-      } catch (error) {
-        console.error("Auth initialization error:", error);
-      } finally {
-        // ALWAYS stop loading, success or failure
-        if (mounted) {
-            setIsLoading(false);
-            clearTimeout(safetyTimeout);
-        }
-      }
-    };
 
-    initializeAuth();
+        try {
+            setSession(session);
+            setUser(session?.user ?? null);
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, newSession) => {
-        if (!mounted) return;
-        setSession(newSession);
-        setUser(newSession?.user ?? null);
-        
-        if (newSession?.user) {
-            await fetchProfile(newSession.user.id);
-        } else {
-            setProfile(null);
+            if (session?.user) {
+                await fetchProfile(session.user.id);
+            } else {
+                setProfile(null);
+            }
+        } catch (error) {
+            console.error("[AUTH DEBUG] Error inside onAuthStateChange callback:", error);
+        } finally {
+            if (mounted) {
+                console.log("%c[AUTH DEBUG] Reached FINALLY block. Setting isLoading to false.", 'font-weight: bold; color: green;');
+                setIsLoading(false);
+            } else {
+                console.log("[AUTH DEBUG] Reached FINALLY block, but component is unmounted. Won't update isLoading state.");
+            }
         }
-        setIsLoading(false);
     });
 
+    // Cleanup function
     return () => {
+        console.log("%c[AUTH DEBUG] AuthProvider useEffect CLEANUP. Unsubscribing listener.", 'color: red;');
         mounted = false;
-        clearTimeout(safetyTimeout);
         subscription?.unsubscribe();
     };
-  }, []);
+}, []); // Empty dependency array is crucial.
 
-  // --- REAL-TIME PROFILE LISTENER ---
+  // --- REAL-TIME PROFILE LISTENER --- (No changes here)
   useEffect(() => {
     if (!user) return;
-
     const channel = supabase
       .channel(`public:profiles:${user.id}`)
-      .on(
-        'postgres_changes',
-        {
-          event: 'UPDATE',
-          schema: 'public',
-          table: 'profiles',
-          filter: `id=eq.${user.id}`,
-        },
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'profiles', filter: `id=eq.${user.id}`},
         async (payload) => {
           console.log("Real-time profile update received:", payload.new);
           await fetchProfile(user.id);
         }
       )
       .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
+    return () => { supabase.removeChannel(channel); };
   }, [user]);
 
   const signOut = async () => {

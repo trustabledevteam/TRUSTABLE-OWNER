@@ -563,7 +563,7 @@ export const api = {
   getAllDocuments: async (schemeId?: string) => {
       let query = supabase.from('documents')
           .select('*, scheme_enrollments(id, profiles(full_name, id))')
-          .eq('status', 'VERIFIED'); // Or UPLOADED
+          .eq('status', 'APPROVED'); // Or UPLOADED
 
       if (schemeId) {
           // Filter by enrollments in this scheme
