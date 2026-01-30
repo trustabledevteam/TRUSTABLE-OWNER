@@ -199,6 +199,7 @@ const ProtectedRoute = () => {
 };
 
 const App = () => {
+  // console.log("%c[DEBUG 3] App.tsx: App component is rendering.", "color: orange; font-weight: bold;");
   return (
     <AuthProvider>
         <HashRouter>
