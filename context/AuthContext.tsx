@@ -11,7 +11,7 @@ interface AuthContextType {
   session: Session | null;
   user: User | null;
   profile: any | null; 
-  isLoading: boolean; // This will be our single, reliable global loader state
+  isLoading: boolean;
   isReadOnly: boolean;
   signOut: () => Promise<void>;
   refreshProfile: () => Promise<void>;
@@ -21,7 +21,7 @@ const AuthContext = createContext<AuthContextType>({
   session: null,
   user: null,
   profile: null,
-  isLoading: true, // App starts in a loading state by default
+  isLoading: true,
   isReadOnly: true,
   signOut: async () => {},
   refreshProfile: async () => {},
@@ -33,67 +33,78 @@ export const AuthProvider = ({ children }: { children?: React.ReactNode }) => {
   const [profile, setProfile] = useState<any | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  // This function remains the same, it's perfect.
+  // This function is perfect and does not need to change.
   const fetchProfile = async (userId: string) => {
     try {
       const { data: profileData, error: profileError } = await supabase
         .from('profiles')
-        .select('*, companies(*)') // Simplified join
+        .select('*, companies(*)')
         .eq('id', userId)
         .single();
       
       if (profileError && profileError.code !== 'PGRST116') {
          console.warn("Profile fetch warning:", profileError.message);
       }
-      
-      setProfile(profileData || null); // Set profile or null if not found
-
+      setProfile(profileData || null);
     } catch (e: any) {
       console.error("Error loading profile:", e.message);
       setProfile(null);
     }
   };
 
-  // --- Step 1: The New, Simplified signOut Function ---
-  // This function ONLY tells Supabase to sign out. It does NOT touch React state.
-  // The onAuthStateChange listener below will handle the state update automatically.
+  // This simplified signOut function is also correct.
   const signOut = async () => {
     await supabase.auth.signOut();
   };
 
-  // --- Step 2: The Bulletproof Authentication Lifecycle useEffect ---
+  // --- THE NEW, BULLETPROOF AUTHENTICATION LIFECYCLE HOOK ---
   useEffect(() => {
-    // We start in a loading state
-    setIsLoading(true);
+    let mounted = true;
 
-    // This listener is the single source of truth. It fires on initial load,
-    // on sign-in, and on sign-out.
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      if (session?.user) {
-        // If there IS a user, fetch their profile.
-        await fetchProfile(session.user.id);
-      } else {
-        // If there is NO user (e.g., after signOut() or on initial load with no session),
-        // ensure the profile is cleared.
-        setProfile(null);
+    // STAGE 1: Perform the fast, initial session check from local storage.
+    const initializeSession = async () => {
+      // getSession() is fast because it reads from the browser's storage.
+      const { data: { session: initialSession } } = await supabase.auth.getSession();
+
+      if (mounted) {
+        setSession(initialSession);
+        setUser(initialSession?.user ?? null);
+        
+        // CRITICAL: Unblock the UI immediately. The app can now render.
+        setIsLoading(false);
+
+        // STAGE 2: If a user was found, start the async fetch for their profile.
+        // This will not block the UI from rendering.
+        if (initialSession?.user) {
+          await fetchProfile(initialSession.user.id);
+        }
       }
+    };
 
-      // Set the session and user state based on the event.
-      setSession(session);
-      setUser(session?.user ?? null);
-      
-      // CRITICAL: The auth check is now complete, no matter the outcome.
-      // We can now safely stop the global loading spinner.
-      setIsLoading(false);
+    initializeSession();
+
+    // Now, set up the listener to handle REAL-TIME changes (login, logout in another tab).
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, newSession) => {
+      if (mounted) {
+        setSession(newSession);
+        setUser(newSession?.user ?? null);
+        
+        if (newSession?.user) {
+          await fetchProfile(newSession.user.id);
+        } else {
+          // If the user signs out, ensure the profile is cleared.
+          setProfile(null);
+        }
+      }
     });
 
-    // Cleanup function to prevent memory leaks when the component unmounts.
+    // Cleanup function to prevent memory leaks.
     return () => {
+      mounted = false;
       subscription?.unsubscribe();
     };
-  }, []); // The empty dependency array ensures this runs only once on mount.
+  }, []); // The empty dependency array ensures this runs only once.
 
-  // This function is still useful for manual refreshes
   const refreshProfile = async () => {
     if (user) {
       await fetchProfile(user.id);
@@ -102,16 +113,7 @@ export const AuthProvider = ({ children }: { children?: React.ReactNode }) => {
   
   const isReadOnly = profile?.verification_status !== 'APPROVED';
 
-  // The value provided to the context.
-  const value = {
-    session,
-    user,
-    profile,
-    isLoading,
-    isReadOnly,
-    signOut,
-    refreshProfile
-  };
+  const value = { session, user, profile, isLoading, isReadOnly, signOut, refreshProfile };
 
   return (
     <AuthContext.Provider value={value}>

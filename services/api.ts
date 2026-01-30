@@ -577,7 +577,7 @@ export const api = {
 
       // 2. Get pending join requests for those schemes
       const { data: requests, error } = await supabase
-          .from('join_requests')
+          .from('scheme_join_requests')
           .select(`*, profiles:subscriber_id(*), schemes(name, chit_id)`)
           .in('scheme_id', schemeIds)
           .eq('status', 'PENDING');
@@ -589,7 +589,7 @@ export const api = {
   processRequest: async (requestId: string, action: 'ACCEPT' | 'DENY') => {
       // If Accepted, create enrollment
       if (action === 'ACCEPT') {
-          const { data: req } = await supabase.from('join_requests').select('*').eq('id', requestId).single();
+          const { data: req } = await supabase.from('scheme_join_requests').select('*').eq('id', requestId).single();
           if (req) {
               const { count } = await supabase.from('scheme_enrollments').select('*', { count: 'exact', head: true }).eq('scheme_id', req.scheme_id);
               await supabase.from('scheme_enrollments').insert({
@@ -602,7 +602,7 @@ export const api = {
           }
       }
       
-      await supabase.from('join_requests').update({ status: action === 'ACCEPT' ? 'ACCEPTED' : 'REJECTED' }).eq('id', requestId);
+      await supabase.from('scheme_join_requests').update({ status: action === 'ACCEPT' ? 'ACCEPTED' : 'REJECTED' }).eq('id', requestId);
   },
 
   // Document Management
