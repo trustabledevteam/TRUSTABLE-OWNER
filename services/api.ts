@@ -255,18 +255,35 @@ export const api = {
       return enrollment;
   },
 
-  // ... (keep existing methods like getAuctions, updateAuction, etc. below)
+  // ... (keep existing methods like getAuctions, updateAuction, etc. below)S
 
-  getAuctions: async (schemeId: string) => {
-      const { data, error } = await supabase
-        .from('auctions')
-        .select(`*, schemes(name, chit_value)`)
-        .eq('scheme_id', schemeId)
-        .order('auction_number');
+  getAuctions: async (ownerId: string, schemeId?: string) => {
+      // Start building the query
+      let query = supabase.from('auctions').select(`
+          *,
+          schemes (
+              name,
+              chit_value,
+              owner_id
+          )
+      `);
+      
+      // If a specific schemeId is provided, filter by it
+      if (schemeId) {
+          query = query.eq('scheme_id', schemeId);
+      } else {
+      // If NO schemeId, filter by the owner of the schemes
+          query = query.eq('schemes.owner_id', ownerId);
+      }
+        
+      const { data, error } = await query.order('auction_number');
         
       if (error) throw error;
       
-      return data.map((a: any) => {
+      // Filter out any null schemes that might result from the join
+      const validData = data.filter(a => a.schemes);
+
+      return validData.map((a: any) => {
           const chitValue = a.schemes?.chit_value || 0;
           return {
             id: a.id,
@@ -276,8 +293,8 @@ export const api = {
             date: new Date(a.auction_date).toLocaleDateString(),
             time: new Date(a.auction_date).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}),
             rawDate: new Date(a.auction_date),
-            status: a.status, 
-            winnerName: 'Pending', 
+            status: a.status,
+            winnerName: 'Pending',
             winningBidAmount: a.winning_bid,
             dividendAmount: a.dividend_amount,
             payoutStatus: a.payout_status,
@@ -308,30 +325,59 @@ export const api = {
       if (error) throw error;
   },
 
-  getSchemeCollectionData: async (schemeId: string) => {
-      const { data: scheme } = await supabase.from('schemes').select('*').eq('id', schemeId).single();
-      const { data: enrollments } = await supabase
+  getSchemeCollectionData: async (ownerId: string, schemeId?: string) => {
+      let query = supabase
         .from('scheme_enrollments')
-        .select(`id, status, created_at, profiles(full_name, phone), transactions(amount, payment_date, mode, created_at)`)
-        .eq('scheme_id', schemeId);
+        .select(`
+            id, status, created_at, 
+            profiles(full_name, phone), 
+            transactions(amount, payment_date, mode, created_at),
+            schemes!inner(start_date, due_day, monthly_due, grace_period_days, default_status_period, owner_id)
+        `);
         
-      return {
-          scheme,
-          subscribers: enrollments || []
-      };
+      if (schemeId) {
+          // If a specific scheme is requested
+          query = query.eq('scheme_id', schemeId);
+      } else {
+          // If viewing all collections, filter by the owner of the schemes
+          query = query.eq('schemes.owner_id', ownerId);
+      }
+      
+      const { data: enrollments, error } = await query;
+      if (error) throw error;
+      
+      // We need scheme details for calculations. If no schemeId, we can't get a single scheme.
+      // The logic in the component will need to handle this.
+      // For now, we return the raw enrollments which contain nested scheme info.
+      return enrollments || [];
   },
 
-  getPendingPayouts: async (schemeId: string) => {
-      const { data, error } = await supabase
+  getPendingPayouts: async (ownerId: string, schemeId?: string) => {
+      let query = supabase
         .from('payouts')
-        .select(`*, auctions(auction_number), scheme_enrollments(id, profiles(full_name))`)
-        .eq('status', 'PENDING')
-        .order('due_date', { ascending: true });
+        .select(`
+            *, 
+            auctions!inner(
+                auction_number, 
+                schemes!inner(owner_id)
+            ), 
+            scheme_enrollments!inner(
+                id, 
+                profiles!inner(full_name)
+            )
+        `)
+        .eq('status', 'PENDING');
+
+      if (schemeId) {
+          query = query.eq('auctions.scheme_id', schemeId);
+      } else {
+          query = query.eq('auctions.schemes.owner_id', ownerId);
+      }
+      
+      const { data, error } = await query.order('due_date', { ascending: true });
 
       if (error) throw error;
 
-      // Filter by scheme via auction join manually or ensure scheme context
-      // Simplified: Assume caller passes correct scheme ID context via UI
       return data.map((p: any) => ({
           id: p.id,
           auction_id: p.auction_id,
