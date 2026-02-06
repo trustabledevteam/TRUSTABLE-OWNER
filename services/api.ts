@@ -255,52 +255,55 @@ export const api = {
       return enrollment;
   },
 
-  // ... (keep existing methods like getAuctions, updateAuction, etc. below)S
+  // ... (keep existing methods like getAuctions, updateAuction, etc. below)
 
   getAuctions: async (ownerId: string, schemeId?: string) => {
-      // Start building the query
       let query = supabase.from('auctions').select(`
           *,
+          auction_history, 
           schemes (
               name,
               chit_value,
-              owner_id
+              owner_id,
+              auction_duration_mins 
           )
       `);
       
-      // If a specific schemeId is provided, filter by it
       if (schemeId) {
           query = query.eq('scheme_id', schemeId);
       } else {
-      // If NO schemeId, filter by the owner of the schemes
           query = query.eq('schemes.owner_id', ownerId);
       }
         
-      const { data, error } = await query.order('auction_number');
+      const { data, error } = await query.order('auction_date', { ascending: true }); // Order by date to get next auction first
         
       if (error) throw error;
       
-      // Filter out any null schemes that might result from the join
       const validData = data.filter(a => a.schemes);
 
       return validData.map((a: any) => {
           const chitValue = a.schemes?.chit_value || 0;
           return {
+            // All existing properties are the same
             id: a.id,
             schemeId: a.scheme_id,
             schemeName: a.schemes?.name,
             auctionNumber: a.auction_number,
-            date: new Date(a.auction_date).toLocaleDateString(),
+            date: new Date(a.auction_date).toLocaleDateString('en-GB', {day: '2-digit', month: '2-digit', year: 'numeric'}), // Use a consistent format
             time: new Date(a.auction_date).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}),
             rawDate: new Date(a.auction_date),
-            status: a.status,
-            winnerName: 'Pending',
+            status: a.status, 
+            winnerName: 'Pending', 
             winningBidAmount: a.winning_bid,
             dividendAmount: a.dividend_amount,
             payoutStatus: a.payout_status,
             minBid: chitValue * 0.05,
             maxBid: chitValue * 0.40,
-            prizePool: chitValue
+            prizePool: chitValue,
+            auctionDurationMins: a.schemes?.auction_duration_mins, // Pass duration for filtering
+            
+            // NEW: Add the history data to the object
+            auction_history: a.auction_history 
           };
       });
   },
