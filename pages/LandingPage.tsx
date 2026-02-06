@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react'; // Import useRef
 import { useNavigate } from 'react-router-dom';
 import gsap from 'gsap';
 import { ScrollTrigger } from 'gsap/ScrollTrigger';
@@ -15,78 +15,96 @@ export const LandingPage: React.FC = () => {
   const [activeProcess, setActiveProcess] = useState<'owner' | 'subscriber'>('owner');
   const [activeFaq, setActiveFaq] = useState<string | null>('faq1');
 
-  useEffect(() => {
-    // Hero Animations
-    const heroTl = gsap.timeline();
-    heroTl.from(".gs-reveal", {
-      y: 50,
-      opacity: 0,
-      duration: 1,
-      stagger: 0.2,
-      ease: "power3.out"
-    }).from(".hero-img", {
-      x: 50,
-      opacity: 0,
-      duration: 1.2,
-      ease: "power2.out"
-    }, "-=0.8");
+  // Create a ref for the main container to scope our GSAP animations
+  const main = useRef(null);
 
-    // Fade Right Elements
-    gsap.utils.toArray(".gs-fade-right").forEach((element: any) => {
-      gsap.from(element, {
-        scrollTrigger: {
-          trigger: element,
-          start: "top 80%",
-          toggleActions: "play none none reverse"
-        },
+  // --- CORRECTED GSAP ANIMATION LOGIC ---
+  useEffect(() => {
+    // Use gsap.context() for safe animation setup and automatic cleanup
+    const ctx = gsap.context(() => {
+      
+      // Hero Animations
+      const heroTl = gsap.timeline();
+      heroTl.from(".gs-reveal", {
+        y: 50,
+        opacity: 0,
+        duration: 1,
+        stagger: 0.2,
+        ease: "power3.out"
+      }).from(".hero-img", {
         x: 50,
         opacity: 0,
-        duration: 1,
+        duration: 1.2,
         ease: "power2.out"
+      }, "-=0.8");
+
+      // Fade Right Elements
+      gsap.utils.toArray(".gs-fade-right").forEach((element: any) => {
+        gsap.from(element, {
+          scrollTrigger: {
+            trigger: element,
+            start: "top 80%",
+            toggleActions: "play none none reverse"
+          },
+          x: 50,
+          opacity: 0,
+          duration: 1,
+          ease: "power2.out"
+        });
       });
-    });
 
-    // Fade Left Elements
-    gsap.utils.toArray(".gs-fade-left").forEach((element: any) => {
-      gsap.from(element, {
-        scrollTrigger: {
-          trigger: element,
-          start: "top 80%",
-          toggleActions: "play none none reverse"
-        },
-        x: -50,
-        opacity: 0,
-        duration: 1,
-        ease: "power2.out"
+      // Fade Left Elements
+      gsap.utils.toArray(".gs-fade-left").forEach((element: any) => {
+        gsap.from(element, {
+          scrollTrigger: {
+            trigger: element,
+            start: "top 80%",
+            toggleActions: "play none none reverse"
+          },
+          x: -50,
+          opacity: 0,
+          duration: 1,
+          ease: "power2.out"
+        });
       });
-    });
-
-    // Card Stagger
-    gsap.utils.toArray(".gs-card-stagger").forEach((card: any, i) => {
-      gsap.from(card, {
-        scrollTrigger: {
-          trigger: card,
-          start: "top 85%",
-        },
-        y: 30,
-        opacity: 0,
-        duration: 0.8,
-        delay: i * 0.2,
-        ease: "back.out(1.7)"
+      
+      // Card Stagger (works well with .from)
+      gsap.utils.toArray(".gs-card-stagger").forEach((card: any, i) => {
+        gsap.from(card, {
+          scrollTrigger: {
+            trigger: card,
+            start: "top 85%",
+          },
+          y: 30,
+          opacity: 0,
+          duration: 0.8,
+          delay: i * 0.2,
+          ease: "back.out(1.7)"
+        });
       });
-    });
 
-    // Feature Cards Batch
-    ScrollTrigger.batch(".gs-card-up", {
-      start: "top 85%",
-      onEnter: batch => gsap.to(batch, {opacity: 1, y: 0, stagger: 0.15, overwrite: true}),
-      onLeave: batch => gsap.set(batch, {opacity: 0, y: 50, overwrite: true}),
-      onEnterBack: batch => gsap.to(batch, {opacity: 1, y: 0, stagger: 0.15, overwrite: true}),
-      onLeaveBack: batch => gsap.set(batch, {opacity: 0, y: 50, overwrite: true})
-    });
-    
-    gsap.set(".gs-card-up", {opacity: 0, y: 50});
+      // Feature Cards Batch (works better with fromTo to be explicit)
+      gsap.utils.toArray<HTMLElement>(".gs-card-up").forEach(card => {
+        gsap.fromTo(card, 
+          { y: 50, opacity: 0 }, // from state
+          { // to state
+            y: 0,
+            opacity: 1,
+            duration: 0.8,
+            ease: "power2.out",
+            scrollTrigger: {
+              trigger: card,
+              start: "top 90%",
+              toggleActions: "play none none reverse"
+            }
+          }
+        );
+      });
 
+    }, main); // <-- Scope the context to our main ref
+
+    // Cleanup function - this is crucial!
+    return () => ctx.revert(); 
   }, []);
 
   const toggleFaq = (id: string) => {
@@ -95,7 +113,6 @@ export const LandingPage: React.FC = () => {
 
   const switchProcess = (type: 'owner' | 'subscriber') => {
     setActiveProcess(type);
-    // Simple GSAP animation for the content switch
     gsap.fromTo(".process-content", { opacity: 0, y: 10 }, { opacity: 1, y: 0, duration: 0.4 });
   };
 
