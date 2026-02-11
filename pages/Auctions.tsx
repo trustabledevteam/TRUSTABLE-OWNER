@@ -6,6 +6,11 @@ import { api } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { Auction } from '../types';
 
+// --- NEW: Developer Flag for Testing ---
+// Set this to 'true' to bypass time checks and enter any auction room.
+// Set this to 'false' for production behavior.
+const TESTING_MODE = true;
+
 const AuctionStatCard = ({ label, value, trend }: { label: string, value: string, trend: string }) => (
     <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-100">
         <p className="text-xs text-gray-500 mb-1">{label}</p>
@@ -14,17 +19,45 @@ const AuctionStatCard = ({ label, value, trend }: { label: string, value: string
     </div>
 );
 
-// --- CORRECTED COMPONENT DEFINITION ---
-// Step 1: Define the props for the component using an interface.
 interface UpcomingAuctionCardProps {
   auction: Auction;
   onEditClick: (auction: Auction) => void;
 }
 
-// Step 2: Use React.FC<PropsType> to correctly type the functional component.
-// This tells TypeScript that it's a React component that can accept special props like 'key'.
 const UpcomingAuctionCard: React.FC<UpcomingAuctionCardProps> = ({ auction, onEditClick }) => {
     const navigate = useNavigate();
+
+    // --- NEW: Handler for Entering the Auction Room ---
+    const handleEnterAuction = () => {
+        const now = new Date();
+        const auctionStartTime = new Date(auction.rawDate);
+        
+        const enterRoom = () => {
+            navigate(`/schemes/${auction.schemeId}/auctions/live/watch`);
+        };
+
+        if (TESTING_MODE) {
+            // In testing mode, show a confirmation dialog.
+            const userConfirmed = window.confirm(
+                `-- TESTING MODE --\n\n` +
+                `This auction is scheduled for ${auction.date} at ${auction.time}.\n\n` +
+                `Do you wish to proceed and enter the room now?`
+            );
+            if (userConfirmed) {
+                enterRoom();
+            }
+        } else {
+            // In production mode, check the actual time.
+            // Allow entry a few minutes before the auction starts.
+            const entryWindow = 5 * 60 * 1000; // 5 minutes in milliseconds
+            if (now.getTime() >= auctionStartTime.getTime() - entryWindow) {
+                enterRoom();
+            } else {
+                alert(`The auction room is not open yet. Please return closer to the scheduled time: ${auction.time}.`);
+            }
+        }
+    };
+
     return (
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 animate-in fade-in slide-in-from-bottom-2">
             <div className="flex justify-between items-start mb-6 pb-4 border-b border-gray-100">
@@ -45,7 +78,10 @@ const UpcomingAuctionCard: React.FC<UpcomingAuctionCardProps> = ({ auction, onEd
             </div>
             <div className="flex justify-end gap-3">
                 <Button variant="outline" onClick={() => onEditClick(auction)} disabled={auction.status === 'LIVE'}>Edit Details</Button>
-                <Button onClick={() => navigate(`/schemes/${auction.schemeId}/auctions/live/watch`)} className={auction.status === 'LIVE' ? 'bg-red-600 hover:bg-red-700' : ''}>{auction.status === 'LIVE' ? 'Enter Live Room' : 'Enter Auction Room'}</Button>
+                {/* Updated Button onClick to use the new handler */}
+                <Button onClick={handleEnterAuction} className={auction.status === 'LIVE' ? 'bg-red-600 hover:bg-red-700' : ''}>
+                    {auction.status === 'LIVE' ? 'Enter Live Room' : 'Enter Auction Room'}
+                </Button>
             </div>
         </div>
     );
