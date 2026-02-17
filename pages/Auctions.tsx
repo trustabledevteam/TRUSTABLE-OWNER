@@ -152,25 +152,34 @@ export const Auctions: React.FC = () => {
 
   const now = new Date();
   
+  // --- CORRECTED DATA PROCESSING LOGIC ---
+
+  // Upcoming auctions are still filtered from the main list, but now we must
+  // explicitly check for a non-completed status.
   const upcomingAuctions = auctions.filter(a => {
+      if (a.status === 'COMPLETED') return false; // Exclude fully completed schemes
       if (!a.rawDate) return false;
+      
       const startTime = new Date(a.rawDate);
       const endTime = new Date(startTime.getTime() + (a.auctionDurationMins || 20) * 60000);
-      return (a.status === 'UPCOMING' || a.status === 'LIVE') && now <= endTime;
+      return now <= endTime; // Show if it's upcoming, live, or has just ended but not yet processed
   });
 
-  const completedAuctions = auctions.flatMap(liveAuction => 
-    (liveAuction.auction_history || []).map((history: any) => ({
-        id: `${liveAuction.id}-${history.auction_number}`,
+  // Completed auctions now correctly reads the history from ALL fetched auction rows.
+  // This includes the history from the currently "live" row and any rows whose status is "COMPLETED".
+  const completedAuctions = auctions.flatMap(auctionRow => 
+    (auctionRow.auction_history || []).map((history: any) => ({
+        id: `${auctionRow.id}-${history.auction_number}`,
         auctionNumber: history.auction_number,
         date: new Date(history.auction_date).toLocaleDateString('en-GB', {day: '2-digit', month: '2-digit', year: 'numeric'}),
-        winnerName: 'N/A',
+        winnerName: 'N/A', // This still requires the VIEW from the previous step to be implemented
         winningBidAmount: history.winning_bid,
         dividendAmount: history.dividend_amount,
         payoutStatus: 'PENDING',
-        schemeName: liveAuction.schemeName,
+        schemeName: auctionRow.schemeName,
     }))
-  ).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  ).sort((a, b) => b.auctionNumber - a.auctionNumber); // Sort by auction number descending
+
 
   return (
     <div className="space-y-6 bg-gray-50 -m-6 p-6 min-h-screen">

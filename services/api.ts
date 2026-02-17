@@ -255,8 +255,6 @@ export const api = {
       return enrollment;
   },
 
-  // ... (keep existing methods like getAuctions, updateAuction, etc. below)
-
   getAuctions: async (ownerId: string, schemeId?: string) => {
       let query = supabase.from('auctions').select(`
           *,
@@ -269,43 +267,41 @@ export const api = {
           )
       `);
       
+      // The filter logic remains the same, it correctly filters by owner.
       if (schemeId) {
           query = query.eq('scheme_id', schemeId);
       } else {
           query = query.eq('schemes.owner_id', ownerId);
       }
         
-      const { data, error } = await query.order('auction_date', { ascending: true }); // Order by date to get next auction first
+      // We no longer filter by status here. We fetch ALL rows (upcoming, live, completed)
+      // and let the frontend decide how to display them.
+      const { data, error } = await query.order('auction_date', { ascending: true });
         
       if (error) throw error;
       
       const validData = data.filter(a => a.schemes);
 
-      return validData.map((a: any) => {
-          const chitValue = a.schemes?.chit_value || 0;
-          return {
-            // All existing properties are the same
-            id: a.id,
-            schemeId: a.scheme_id,
-            schemeName: a.schemes?.name,
-            auctionNumber: a.auction_number,
-            date: new Date(a.auction_date).toLocaleDateString('en-GB', {day: '2-digit', month: '2-digit', year: 'numeric'}), // Use a consistent format
-            time: new Date(a.auction_date).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}),
-            rawDate: new Date(a.auction_date),
-            status: a.status, 
-            winnerName: 'Pending', 
-            winningBidAmount: a.winning_bid,
-            dividendAmount: a.dividend_amount,
-            payoutStatus: a.payout_status,
-            minBid: chitValue * 0.05,
-            maxBid: chitValue * 0.40,
-            prizePool: chitValue,
-            auctionDurationMins: a.schemes?.auction_duration_mins, // Pass duration for filtering
-            
-            // NEW: Add the history data to the object
-            auction_history: a.auction_history 
-          };
-      });
+      // The mapping logic remains the same.
+      return validData.map((a: any) => ({
+        id: a.id,
+        schemeId: a.scheme_id,
+        schemeName: a.schemes?.name,
+        auctionNumber: a.auction_number,
+        date: new Date(a.auction_date).toLocaleDateString('en-GB', {day: '2-digit', month: '2-digit', year: 'numeric'}),
+        time: new Date(a.auction_date).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}),
+        rawDate: new Date(a.auction_date),
+        status: a.status,
+        winnerName: 'Pending',
+        winningBidAmount: a.winning_bid,
+        dividendAmount: a.dividend_amount,
+        payoutStatus: a.payout_status,
+        minBid: (a.schemes?.chit_value || 0) * 0.05,
+        maxBid: (a.schemes?.chit_value || 0) * 0.40,
+        prizePool: a.schemes?.chit_value,
+        auctionDurationMins: a.schemes?.auction_duration_mins,
+        auction_history: a.auction_history 
+      }));
   },
 
   updateAuction: async (auctionId: string, schemeId: string, updates: any) => {
@@ -698,5 +694,26 @@ export const api = {
           file_path: filePath,
           status: 'SUBMITTED'
       });
-  }
+  },
+
+  // --- NEW FUNCTION TO RESET AUCTION STATUS ---
+  resetAuctionStatus: async (auctionId: string, originalAuctionDate: string) => {
+    const { data, error } = await supabase
+      .from('auctions')
+      .update({ 
+        status: 'UPCOMING',
+        auction_date: originalAuctionDate, // Revert to the original scheduled date
+        winner_enrollment_id: null,
+        winning_bid: null,
+        dividend_amount: null,
+        payout_status: null
+      })
+      .eq('id', auctionId)
+      .select()
+      .single();
+    
+    if (error) throw error;
+    return data;
+  },
+
 };
