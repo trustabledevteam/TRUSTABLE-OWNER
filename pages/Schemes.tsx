@@ -7,7 +7,9 @@ import { api } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 
 export const Schemes: React.FC = () => {
-  const { isReadOnly, user } = useAuth();
+  //const { isReadOnly, user } = useAuth();
+  const { user } = useAuth();
+  const isReadOnly = false; 
   const [schemes, setSchemes] = useState<any[]>([]); // Use any to allow extended props locally
   const [isLoading, setIsLoading] = useState(true);
   

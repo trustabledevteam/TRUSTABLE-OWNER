@@ -1,7 +1,8 @@
-import React, { createContext, useContext, useEffect, useState, useRef } from 'react'; // Import useRef
+// File: src/context/AuthContext.tsx
+
+import React, { createContext, useContext, useEffect, useState } from 'react';
 import { supabase } from '../services/supabaseClient';
 
-// Use 'any' to bypass potential type definition issues if types are outdated
 type Session = any;
 type User = any;
 
@@ -26,55 +27,99 @@ const AuthContext = createContext<AuthContextType>({
 });
 
 export const AuthProvider = ({ children }: { children?: React.ReactNode }) => {
-  // console.log("%c[DEBUG 4] AuthContext.tsx: AuthProvider component is rendering.", "color: blue; font-weight: bold;");
-
   const [session, setSession] = useState<Session | null>(null);
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<any | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  
-  // This ref will act as a flag to prevent the effect from running twice in development.
-  const effectRan = useRef(false);
 
-  const fetchProfile = async (userId: string) => { /* ... this function is correct, no changes needed ... */ };
-  const signOut = async () => { await supabase.auth.signOut(); };
-
-  // --- THE NEW, STRICT MODE-PROOF USEEFFECT ---
-  useEffect(() => {
-    // In Strict Mode, this effect will run twice. We use the ref to only execute our logic on the second run.
-    // In Production, it only runs once, so we also check the NODE_ENV.
-    if (effectRan.current === true || process.env.NODE_ENV !== 'development') {
-      console.log("%c[EFFECT RUN] Setting up Supabase listener.", "color: green;");
+  // This function is correct.
+  const fetchProfile = async (userId: string) => {
+    try {
+      const { data: profileData, error: profileError } = await supabase
+        .from('profiles')
+        .select('*, companies(*)')
+        .eq('id', userId)
+        .single();
       
-      const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-        console.log(`%c[LISTENER FIRED] Event: ${event}`, "color: purple;");
-        
-        if (session?.user) {
-          await fetchProfile(session.user.id);
-        } else {
-          setProfile(null);
-        }
-        setSession(session);
-        setUser(session?.user ?? null);
-        setIsLoading(false);
-      });
-
-      // This is the cleanup for the "real" effect run.
-      return () => {
-        console.log("%c[EFFECT CLEANUP] Unsubscribing listener.", "color: red;");
-        subscription?.unsubscribe();
-      };
+      if (profileError && profileError.code !== 'PGRST116') {
+         console.warn("AuthContext: Profile fetch warning:", profileError.message);
+      }
+      setProfile(profileData || null);
+    } catch (e: any) {
+      console.error("AuthContext: Error loading profile:", e.message);
+      setProfile(null);
     }
+  };
 
-    // This is the cleanup for the FIRST run in Strict Mode. It does nothing but set the flag.
-    return () => {
-      console.log("[STRICT MODE] First run cleanup triggered. Setting flag to true.");
-      effectRan.current = true;
+  // The signOut function only needs to tell Supabase to sign out.
+  // The listener below will handle the state cleanup.
+  const signOut = async () => {
+    await supabase.auth.signOut();
+  };
+
+  // --- THE DEFINITIVE "TWO-STAGE LOAD" USEEFFECT ---
+  useEffect(() => {
+    let mounted = true;
+
+    // STAGE 1: Fast initial session check.
+    const initializeSession = async () => {
+      // getSession() is fast; it reads from browser storage.
+      const { data: { session: initialSession }, error } = await supabase.auth.getSession();
+
+      if (error) {
+        console.error("Error getting initial session:", error);
+        if (mounted) setIsLoading(false);
+        return;
+      }
+      
+      if (mounted) {
+        setSession(initialSession);
+        setUser(initialSession?.user ?? null);
+        
+        // CRITICAL: Unblock the UI immediately after checking local storage.
+        setIsLoading(false);
+
+        // STAGE 2: Start the async profile fetch *after* the UI is unblocked.
+        if (initialSession?.user) {
+          await fetchProfile(initialSession.user.id);
+        }
+      }
     };
-  }, []); // The empty dependency array is correct and crucial.
 
-  const refreshProfile = async () => { /* ... this function is correct, no changes needed ... */ };
+    initializeSession();
+
+    // Set up the listener for subsequent real-time changes (login/logout).
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      (_event, newSession) => {
+        if (mounted) {
+          // When a change happens (like a logout), update the session and user.
+          setSession(newSession);
+          setUser(newSession?.user ?? null);
+          
+          // If the change resulted in no user, clear the profile.
+          if (!newSession?.user) {
+            setProfile(null);
+          }
+        }
+      }
+    );
+
+    // Cleanup on unmount.
+    return () => {
+      mounted = false;
+      subscription?.unsubscribe();
+    };
+  }, []); // Run only once.
+
+  // This function remains the same and is correct.
+  const refreshProfile = async () => {
+    if (user) {
+      await fetchProfile(user.id);
+    }
+  };
+  
   const isReadOnly = profile?.verification_status !== 'APPROVED';
+
   const value = { session, user, profile, isLoading, isReadOnly, signOut, refreshProfile };
 
   return (
@@ -84,4 +129,4 @@ export const AuthProvider = ({ children }: { children?: React.ReactNode }) => {
   );
 };
 
-export const useAuth = () => useContext(AuthContext);
+export const useAuth = () => useContext(AuthContext); 
