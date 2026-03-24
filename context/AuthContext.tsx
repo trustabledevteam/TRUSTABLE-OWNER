@@ -1,19 +1,24 @@
-// File: src/context/AuthContext.tsx
-
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { supabase } from '../services/supabaseClient';
+import { apiClient } from '../services/apiClient';
 
-type Session = any;
-type User = any;
+interface User {
+  id: string;
+  email: string;
+  role: string;
+  full_name?: string;
+  verification_status?: string;
+}
 
 interface AuthContextType {
-  session: Session | null;
+  session: { access_token: string } | null;
   user: User | null;
-  profile: any | null; 
+  profile: any | null;
   isLoading: boolean;
   isReadOnly: boolean;
   signOut: () => Promise<void>;
   refreshProfile: () => Promise<void>;
+  login: (email: string, password: string) => Promise<any>;
+  signup: (email: string, password: string, options?: any) => Promise<any>;
 }
 
 const AuthContext = createContext<AuthContextType>({
@@ -24,26 +29,19 @@ const AuthContext = createContext<AuthContextType>({
   isReadOnly: true,
   signOut: async () => {},
   refreshProfile: async () => {},
+  login: async () => {},
+  signup: async () => {},
 });
 
 export const AuthProvider = ({ children }: { children?: React.ReactNode }) => {
-  const [session, setSession] = useState<Session | null>(null);
+  const [session, setSession] = useState<{ access_token: string } | null>(null);
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<any | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  // This function is correct.
   const fetchProfile = async (userId: string) => {
     try {
-      const { data: profileData, error: profileError } = await supabase
-        .from('profiles')
-        .select('*, companies(*)')
-        .eq('id', userId)
-        .single();
-      
-      if (profileError && profileError.code !== 'PGRST116') {
-         console.warn("AuthContext: Profile fetch warning:", profileError.message);
-      }
+      const profileData = await apiClient.get(`/api/profiles/${userId}`);
       setProfile(profileData || null);
     } catch (e: any) {
       console.error("AuthContext: Error loading profile:", e.message);
@@ -51,76 +49,101 @@ export const AuthProvider = ({ children }: { children?: React.ReactNode }) => {
     }
   };
 
-  // The signOut function only needs to tell Supabase to sign out.
-  // The listener below will handle the state cleanup.
-  const signOut = async () => {
-    await supabase.auth.signOut();
+  const login = async (email: string, password: string) => {
+    const data = await apiClient.post('/api/auth/login', { email, password });
+    localStorage.setItem('access_token', data.session.access_token);
+    localStorage.setItem('refresh_token', data.session.refresh_token);
+    setSession({ access_token: data.session.access_token });
+    setUser(data.user);
+    await fetchProfile(data.user.id);
+    return data;
   };
 
-  // --- THE DEFINITIVE "TWO-STAGE LOAD" USEEFFECT ---
+  const signup = async (email: string, password: string, options?: any) => {
+    const data = await apiClient.post('/api/auth/signup', {
+      email, password,
+      username: options?.data?.username,
+      signup_context: options?.data?.signup_context,
+      role: options?.data?.role || 'OWNER'
+    });
+    localStorage.setItem('access_token', data.session.access_token);
+    localStorage.setItem('refresh_token', data.session.refresh_token);
+    setSession({ access_token: data.session.access_token });
+    setUser(data.user);
+    return data;
+  };
+
+  const signOut = async () => {
+    try { await apiClient.post('/api/auth/logout'); } catch {}
+    localStorage.removeItem('access_token');
+    localStorage.removeItem('refresh_token');
+    setSession(null);
+    setUser(null);
+    setProfile(null);
+  };
+
+  // Initialize session from stored token
   useEffect(() => {
     let mounted = true;
 
-    // STAGE 1: Fast initial session check.
     const initializeSession = async () => {
-      // getSession() is fast; it reads from browser storage.
-      const { data: { session: initialSession }, error } = await supabase.auth.getSession();
+      const token = localStorage.getItem('access_token');
 
-      if (error) {
-        console.error("Error getting initial session:", error);
+      if (!token) {
         if (mounted) setIsLoading(false);
         return;
       }
-      
-      if (mounted) {
-        setSession(initialSession);
-        setUser(initialSession?.user ?? null);
-        
-        // CRITICAL: Unblock the UI immediately after checking local storage.
-        setIsLoading(false);
 
-        // STAGE 2: Start the async profile fetch *after* the UI is unblocked.
-        if (initialSession?.user) {
-          await fetchProfile(initialSession.user.id);
+      try {
+        const data = await apiClient.get('/api/auth/session', token);
+        if (mounted) {
+          setSession({ access_token: token });
+          setUser(data.user);
+          setIsLoading(false);
+
+          if (data.user) {
+            await fetchProfile(data.user.id);
+          }
         }
+      } catch (err) {
+        // Token invalid, try refresh
+        const refreshToken = localStorage.getItem('refresh_token');
+        if (refreshToken) {
+          try {
+            const refreshData = await apiClient.post('/api/auth/refresh', { refresh_token: refreshToken });
+            if (mounted) {
+              localStorage.setItem('access_token', refreshData.session.access_token);
+              localStorage.setItem('refresh_token', refreshData.session.refresh_token);
+              // Retry session check
+              const data = await apiClient.get('/api/auth/session', refreshData.session.access_token);
+              setSession({ access_token: refreshData.session.access_token });
+              setUser(data.user);
+              if (data.user) await fetchProfile(data.user.id);
+            }
+          } catch {
+            // Refresh also failed, clear everything
+            localStorage.removeItem('access_token');
+            localStorage.removeItem('refresh_token');
+          }
+        } else {
+          localStorage.removeItem('access_token');
+        }
+        if (mounted) setIsLoading(false);
       }
     };
 
     initializeSession();
 
-    // Set up the listener for subsequent real-time changes (login/logout).
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (_event, newSession) => {
-        if (mounted) {
-          // When a change happens (like a logout), update the session and user.
-          setSession(newSession);
-          setUser(newSession?.user ?? null);
-          
-          // If the change resulted in no user, clear the profile.
-          if (!newSession?.user) {
-            setProfile(null);
-          }
-        }
-      }
-    );
+    return () => { mounted = false; };
+  }, []);
 
-    // Cleanup on unmount.
-    return () => {
-      mounted = false;
-      subscription?.unsubscribe();
-    };
-  }, []); // Run only once.
-
-  // This function remains the same and is correct.
   const refreshProfile = async () => {
-    if (user) {
-      await fetchProfile(user.id);
-    }
+    if (user) await fetchProfile(user.id);
   };
-  
+
   const isReadOnly = profile?.verification_status !== 'APPROVED';
 
-  const value = { session, user, profile, isLoading, isReadOnly, signOut, refreshProfile };
+  const value = { session, user, profile, isLoading, isReadOnly, signOut, refreshProfile, login, signup };
 
   return (
     <AuthContext.Provider value={value}>
@@ -129,4 +152,4 @@ export const AuthProvider = ({ children }: { children?: React.ReactNode }) => {
   );
 };
 
-export const useAuth = () => useContext(AuthContext); 
+export const useAuth = () => useContext(AuthContext);

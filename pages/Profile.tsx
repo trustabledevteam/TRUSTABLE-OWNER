@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { Card, Input, Button } from '../components/UI';
 import { User, Building2, Landmark, Pencil, Camera, Loader2 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { supabase } from '../services/supabaseClient';
+import { apiClient } from '../services/apiClient';
 
 export const Profile: React.FC = () => {
   const { profile } = useAuth();
@@ -35,24 +35,18 @@ export const Profile: React.FC = () => {
         setLoadingImages(true);
         
         try {
-            const { data: docs, error } = await supabase
-                .from('documents')
-                .select('document_type, file_path')
-                .eq('owner_id', profile.id)
-                .in('document_type', ['owner_photo', 'company_logo']);
+            const docs = await apiClient.get(`/api/documents?ownerId=${profile.id}`);
 
             if (docs) {
-                const photoEntry = docs.find(d => d.document_type === 'owner_photo');
-                const logoEntry = docs.find(d => d.document_type === 'company_logo');
+                const photoEntry = docs.find((d: any) => d.document_type === 'owner_photo');
+                const logoEntry = docs.find((d: any) => d.document_type === 'company_logo');
 
                 if (photoEntry) {
-                    const { data } = supabase.storage.from('company-onboarding-doc').getPublicUrl(photoEntry.file_path);
-                    setOwnerPhoto(data.publicUrl);
+                    setOwnerPhoto(apiClient.getFileUrl(photoEntry.file_path));
                 }
-                
+
                 if (logoEntry) {
-                    const { data } = supabase.storage.from('company-onboarding-doc').getPublicUrl(logoEntry.file_path);
-                    setCompanyLogo(data.publicUrl);
+                    setCompanyLogo(apiClient.getFileUrl(logoEntry.file_path));
                 }
             }
         } catch (err) {

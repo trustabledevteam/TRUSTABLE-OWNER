@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Upload, CheckCircle, ArrowRight, ArrowLeft, Clock, Loader2, AlertCircle } from 'lucide-react';
 import { Button } from '../components/UI';
-import { supabase } from '../services/supabaseClient';
+import { apiClient } from '../services/apiClient';
 import { useAuth } from '../context/AuthContext';
 
 interface RegisterProps {
@@ -50,7 +50,7 @@ const StepLayout = ({ title, stepNum, children, onNext, onPrev, nextLabel = "Nex
 
 export const Register: React.FC<RegisterProps> = ({ onRegisterSuccess }) => {
   const navigate = useNavigate();
-  const { refreshProfile } = useAuth();
+  const { refreshProfile, signup } = useAuth();
   const [step, setStep] = useState(0); 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -92,17 +92,10 @@ export const Register: React.FC<RegisterProps> = ({ onRegisterSuccess }) => {
 
       setLoading(true); setError(null);
       try {
-          // v2 syntax: signUp({email, password, options: {data: ...}})
-          const { data, error } = await supabase.auth.signUp({
-              email: formData.email,
-              password: formData.password,
-              options: {
-                  data: { full_name: formData.username }
-              }
+          const data = await signup(formData.email, formData.password, {
+              data: { username: formData.username }
           });
-          
-          if (error) throw error;
-          
+
           if (data.user) {
               setUserId(data.user.id);
               if (data.session) {
@@ -120,11 +113,9 @@ export const Register: React.FC<RegisterProps> = ({ onRegisterSuccess }) => {
       if (!userId) return;
       setLoading(true); setError(null);
       try {
-          // Use Upsert to ensure profile exists. 
-          // If the trigger failed to create the profile on signup, this will create it.
-          const { error } = await supabase.from('profiles').upsert({
+          await apiClient.put(`/api/profiles/${userId}`, {
               id: userId,
-              email: formData.email, // Ensure email is present
+              email: formData.email,
               full_name: formData.name,
               phone: formData.phone,
               dob: formData.dob || null,
@@ -133,10 +124,8 @@ export const Register: React.FC<RegisterProps> = ({ onRegisterSuccess }) => {
               state: formData.state,
               pan_number: formData.pan,
               aadhaar_number: formData.aadhaar,
-              role: 'OWNER' // Explicitly set role
+              role: 'OWNER'
           });
-
-          if (error) throw error;
           
           await uploadDocument(userId, 'owner_pan', files.ownerPan, 'owner-kyc');
           await uploadDocument(userId, 'owner_aadhaar', files.ownerAadhaar, 'owner-kyc');
@@ -152,7 +141,7 @@ export const Register: React.FC<RegisterProps> = ({ onRegisterSuccess }) => {
       if (!userId) return;
       setLoading(true); setError(null);
       try {
-          const { data, error } = await supabase.from('companies').insert([{
+          const data = await apiClient.post('/api/companies/setup', {
               owner_id: userId,
               company_name: formData.companyName,
               incorporation_date: formData.incDate || null,
@@ -163,12 +152,11 @@ export const Register: React.FC<RegisterProps> = ({ onRegisterSuccess }) => {
               city: formData.compCity,
               state: formData.compState,
               pincode: formData.compPin
-          }]).select().single();
+          });
 
-          if (error) throw error;
           setTempCompanyId(data.id);
 
-          await supabase.from('profiles').update({ company_id: data.id }).eq('id', userId);
+          await apiClient.put(`/api/profiles/${userId}`, { company_id: data.id });
 
           await uploadDocument(userId, 'company_moa', files.companyMoa, 'company-verification-doc', data.id);
           await uploadDocument(userId, 'company_roc', files.companyRoc, 'company-verification-doc', data.id);
@@ -183,17 +171,17 @@ export const Register: React.FC<RegisterProps> = ({ onRegisterSuccess }) => {
       if (!userId || !tempCompanyId) return;
       setLoading(true); setError(null);
       try {
-          await supabase.from('companies').update({
+          await apiClient.put(`/api/companies/${tempCompanyId}`, {
               bank_name: formData.bankName,
               branch_name: formData.branch,
               account_number: formData.accNum,
               ifsc_code: formData.ifsc
-          }).eq('id', tempCompanyId);
+          });
 
           await uploadDocument(userId, 'bank_proof', files.bankProof, 'company-verification-doc', tempCompanyId);
 
           // Set status to SUBMITTED for admin review
-          await supabase.from('profiles').update({ verification_status: 'SUBMITTED' }).eq('id', userId);
+          await apiClient.put(`/api/profiles/${userId}`, { verification_status: 'SUBMITTED' });
           
           // Refresh context so App.tsx knows user is pending
           await refreshProfile();
@@ -209,19 +197,14 @@ export const Register: React.FC<RegisterProps> = ({ onRegisterSuccess }) => {
 
   const uploadDocument = async (userId: string, type: string, file: File | null, folder: 'owner-kyc' | 'company-verification-doc', companyId?: string) => {
       if (!file) return;
-      const fileExt = file.name.split('.').pop();
-      const filePath = `${folder}/${userId}/${type}_${Date.now()}.${fileExt}`;
-      const { error: uploadError } = await supabase.storage.from('company-onboarding-doc').upload(filePath, file);
-
-      if (!uploadError) {
-          await supabase.from('documents').insert([{
-              owner_id: userId,
-              company_id: companyId,
-              document_type: type,
-              file_path: filePath,
-              status: 'SUBMITTED'
-          }]);
-      }
+      const fd = new FormData();
+      fd.append('file', file);
+      fd.append('document_type', type);
+      fd.append('owner_id', userId);
+      fd.append('subfolder', folder + '/' + userId);
+      fd.append('status', 'SUBMITTED');
+      if (companyId) fd.append('company_id', companyId);
+      await apiClient.upload('/api/documents/upload', fd);
   };
 
   const handleExplore = async () => {

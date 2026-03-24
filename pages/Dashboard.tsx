@@ -6,7 +6,8 @@ import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContai
 import { Link } from 'react-router-dom';
 import { api, DashboardStats } from '../services/api';
 import { useAuth } from '../context/AuthContext';
-import { supabase } from '../services/supabaseClient';
+import { apiClient } from '../services/apiClient';
+import { io as socketIO } from 'socket.io-client';
 
 interface Reminder {
   id: number;
@@ -103,13 +104,7 @@ export const Dashboard: React.FC = () => {
       setRemindersError(null);
       setRemindersLoading(true);
       try {
-        const { data, error } = await supabase
-          .from('reminders')
-          .select('*')
-          .eq('owner_id', user.id)
-          .order('created_at', { ascending: false });
-
-        if (error) throw error;
+        const { data } = await apiClient.get('/api/reminders');
         setReminders((data || []).map(mapSupabaseToReminder));
       } catch (err: any) {
         // Silent fail for reminders to keep dash usable
@@ -122,17 +117,13 @@ export const Dashboard: React.FC = () => {
 
     fetchReminders();
 
-    const channel = supabase
-      .channel('reminders-live')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'reminders', filter: `owner_id=eq.${user.id}` },
-        () => fetchReminders()
-      )
-      .subscribe();
+    const API_BASE = (import.meta as any).env?.VITE_API_URL || 'http://localhost:3001';
+    const socket = socketIO(API_BASE);
+    socket.emit('join_reminders', user.id);
+    socket.on('reminder_change', () => fetchReminders());
 
     return () => {
-      supabase.removeChannel(channel);
+      socket.disconnect();
     };
   }, [user?.id]);
 
@@ -158,12 +149,7 @@ export const Dashboard: React.FC = () => {
     const reminder = reminders.find(r => r.id === reminderId);
     if (!reminder) return;
     try {
-      const { error } = await supabase
-        .from('reminders')
-        .update({ completed: !reminder.completed })
-        .eq('id', reminderId);
-
-      if (error) throw error;
+      await apiClient.put(`/api/reminders/${reminderId}`, { completed: !reminder.completed });
       setReminders(prev => prev.map(r => r.id === reminderId ? { ...r, completed: !r.completed } : r));
     } catch (err) {
       console.error('Error toggling reminder:', err);
@@ -172,8 +158,7 @@ export const Dashboard: React.FC = () => {
 
   const deleteReminder = async (reminderId: number) => {
     try {
-      const { error } = await supabase.from('reminders').delete().eq('id', reminderId);
-      if (error) throw error;
+      await apiClient.delete(`/api/reminders/${reminderId}`);
       setReminders(prev => prev.filter(r => r.id !== reminderId));
       setIsModalOpen(false);
     } catch (err) {
@@ -189,23 +174,20 @@ export const Dashboard: React.FC = () => {
 
     try {
       if (editingReminder) {
-        const { data, error } = await supabase
-          .from('reminders')
-          .update({ title: taskName, priority, date: taskDate || null, time: taskTime || null })
-          .eq('id', editingReminder.id)
-          .select()
-          .single();
-        
-        if (error) throw error;
+        const { data } = await apiClient.put(`/api/reminders/${editingReminder.id}`, {
+          title: taskName,
+          priority,
+          date: taskDate || null,
+          time: taskTime || null,
+        });
         setReminders(prev => prev.map(r => r.id === editingReminder.id ? mapSupabaseToReminder(data) : r));
       } else {
-        const { data, error } = await supabase
-          .from('reminders')
-          .insert({ owner_id: user.id, title: taskName, priority, date: taskDate || null, time: taskTime || null })
-          .select()
-          .single();
-
-        if (error) throw error;
+        const { data } = await apiClient.post('/api/reminders', {
+          title: taskName,
+          priority,
+          date: taskDate || null,
+          time: taskTime || null,
+        });
         setReminders(prev => [mapSupabaseToReminder(data), ...prev]);
       }
       setIsModalOpen(false);

@@ -3,7 +3,8 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, Gavel, Users, Clock, Trophy, Zap, Play, UserCog, Loader2, RefreshCw } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../services/api';
-import { supabase } from '../services/supabaseClient';
+import { apiClient } from '../services/apiClient';
+import { io as socketIO } from 'socket.io-client';
 import { Bid, Auction, ProxyBid } from '../types';
 import { Modal, Input, Button } from '../components/UI';
 
@@ -12,11 +13,13 @@ import { Modal, Input, Button } from '../components/UI';
 // Set this to 'false' for production.
 const TESTING_MODE = true;
 
+const API_BASE = (import.meta as any).env?.VITE_API_URL || 'http://localhost:3001';
+
 export const LiveAuction: React.FC = () => {
     const navigate = useNavigate();
     const { id } = useParams(); // Scheme ID
     const { user } = useAuth();
-    
+
     // --- CONSOLIDATED STATE MANAGEMENT ---
     const [auctionData, setAuctionData] = useState<Auction | null>(null);
     const [schemeData, setSchemeData] = useState<any>(null);
@@ -28,12 +31,12 @@ export const LiveAuction: React.FC = () => {
     const [auctionEnded, setAuctionEnded] = useState(false);
     const [winnerDetails, setWinnerDetails] = useState<any>(null);
     const [auctionEndTime, setAuctionEndTime] = useState<Date | null>(null);
-    const [timeLeft, setTimeLeft] = useState(0); 
+    const [timeLeft, setTimeLeft] = useState(0);
     const [isProxyModalOpen, setIsProxyModalOpen] = useState(false);
     const [offlineSubscribers, setOfflineSubscribers] = useState<{id: string, name: string}[]>([]);
     const [selectedProxySub, setSelectedProxySub] = useState('');
     const [proxyLimitAmount, setProxyLimitAmount] = useState('');
-    const [activeProxies, setActiveProxies] = useState<ProxyBid[]>([]); 
+    const [activeProxies, setActiveProxies] = useState<ProxyBid[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const finalizationTriggered = useRef(false);
 
@@ -47,12 +50,12 @@ export const LiveAuction: React.FC = () => {
 
         try {
             const [schemeRes, auctionRes] = await Promise.all([
-                supabase.from('schemes').select('*').eq('id', id).single(),
-                supabase.from('auctions').select('*').eq('scheme_id', id).order('auction_number', { ascending: true }).limit(1).single()
+                apiClient.get(`/api/schemes/${id}`),
+                apiClient.get(`/api/auctions?schemeId=${id}`)
             ]);
 
             const schemeRaw = schemeRes.data;
-            const auction = auctionRes.data;
+            const auction = auctionRes.data?.[0] || null;
             let ownerStatus = false;
 
             if (!initialAuctionDataRef.current) {
@@ -64,7 +67,8 @@ export const LiveAuction: React.FC = () => {
                 ownerStatus = schemeRaw.owner_id === user.id;
                 setIsOwner(ownerStatus);
                 if (!ownerStatus) {
-                    const { data: enrollment } = await supabase.from('scheme_enrollments').select('id').eq('scheme_id', id).eq('subscriber_id', user.id).single();
+                    const enrollmentRes = await apiClient.get(`/api/enrollments?schemeId=${id}&subscriberId=${user.id}`);
+                    const enrollment = enrollmentRes.data?.[0] || null;
                     if (enrollment) setMyEnrollmentId(enrollment.id);
                 }
             }
@@ -73,9 +77,9 @@ export const LiveAuction: React.FC = () => {
                 setAuctionEnded(true);
                 return;
             }
-            
+
             setAuctionData(auction);
-            
+
             // --- CRITICAL FIX: DO NOT calculate end time here ---
             // Instead, set the display timer to the full duration if the auction is upcoming.
             if (auction.status === 'UPCOMING') {
@@ -94,7 +98,8 @@ export const LiveAuction: React.FC = () => {
                 handleEndAuction(auction.id, true);
             } else {
                 setAuctionEnded(false);
-                const { data: existingBids } = await supabase.from('bids').select('*, scheme_enrollments!inner(subscriber_id, profiles:subscriber_id(full_name))').eq('auction_id', auction.id).order('amount', { ascending: true });
+                const bidsRes = await apiClient.get(`/api/bids?auctionId=${auction.id}`);
+                const existingBids = bidsRes.data;
                 if (existingBids && existingBids.length > 0) {
                     // ... (rest of bid loading logic is correct)
                 } else {
@@ -106,7 +111,7 @@ export const LiveAuction: React.FC = () => {
                     // ... (rest of proxy loading logic is correct)
                 }
             }
-        } catch (e) { console.error("Init failed", e); } 
+        } catch (e) { console.error("Init failed", e); }
         finally { setIsLoading(false); }
     };
 
@@ -114,7 +119,7 @@ export const LiveAuction: React.FC = () => {
     useEffect(() => {
         // We still use a mounted flag as a general good practice for async operations in effects.
         let isMounted = true;
-        
+
         if (isMounted) {
             init();
         }
@@ -127,38 +132,38 @@ export const LiveAuction: React.FC = () => {
     // --- 2. REAL-TIME SUBSCRIPTION ---
     useEffect(() => {
         if (!auctionData) return;
-        const channel = supabase.channel(`auction_room:${auctionData.id}`)
-            .on(
-                'postgres_changes',
-                { event: 'INSERT', schema: 'public', table: 'bids', filter: `auction_id=eq.${auctionData.id}` },
-                async (payload) => {
-                    const newBidRow = payload.new;
-                    const { data: enrolData } = await supabase.from('scheme_enrollments').select('subscriber_id, profiles:subscriber_id(full_name)').eq('id', newBidRow.enrollment_id).single();
-                    const newBid: Bid = { id: newBidRow.id, auctionId: newBidRow.auction_id, userId: enrolData?.subscriber_id, enrollmentId: newBidRow.enrollment_id, userName: (enrolData?.profiles as any)?.full_name || 'Unknown', amount: newBidRow.amount, timestamp: new Date(newBidRow.created_at).toLocaleTimeString(), isProxy: newBidRow.bid_type === 'PROXY' };
-                    setBids(prev => [newBid, ...prev].sort((a, b) => a.amount - b.amount));
-                    setCurrentBid(newBidRow.amount);
-                    setLastBidderName((enrolData?.profiles as any)?.full_name || 'Unknown');
-                }
-            )
-            .on(
-                'postgres_changes',
-                { event: 'UPDATE', schema: 'public', table: 'auctions', filter: `id=eq.${auctionData.id}` },
-                (payload) => {
-                    const newAuction = payload.new;
-                    if (newAuction.status === 'LIVE' && auctionData.status !== 'LIVE') {
-                        const startDate = new Date(newAuction.auction_date);
-                        const durationMins = schemeData?.auction_duration_mins || 20;
-                        setAuctionEndTime(new Date(startDate.getTime() + durationMins * 60000));
-                    }
-                    if (newAuction.status === 'COMPLETED') {
-                        setAuctionEnded(true);
-                        handleEndAuction(auctionData.id, true); 
-                    }
-                    setAuctionData(prev => prev ? { ...prev, ...newAuction } : null);
-                }
-            )
-            .subscribe();
-        return () => { supabase.removeChannel(channel); };
+
+        const socket = socketIO(API_BASE);
+        socket.emit('join_auction', auctionData.id);
+
+        socket.on('new_bid', async (payload: any) => {
+            const newBidRow = payload.new || payload;
+            const enrolRes = await apiClient.get(`/api/enrollments/${newBidRow.enrollment_id}/details`);
+            const enrolData = enrolRes.data;
+            const newBid: Bid = { id: newBidRow.id, auctionId: newBidRow.auction_id, userId: enrolData?.subscriber_id, enrollmentId: newBidRow.enrollment_id, userName: enrolData?.full_name || 'Unknown', amount: newBidRow.amount, timestamp: new Date(newBidRow.created_at).toLocaleTimeString(), isProxy: newBidRow.bid_type === 'PROXY' };
+            setBids(prev => [newBid, ...prev].sort((a, b) => a.amount - b.amount));
+            setCurrentBid(newBidRow.amount);
+            setLastBidderName(enrolData?.full_name || 'Unknown');
+        });
+
+        socket.on('auction_update', (payload: any) => {
+            const newAuction = payload.new || payload;
+            if (newAuction.status === 'LIVE' && auctionData.status !== 'LIVE') {
+                const startDate = new Date(newAuction.auction_date);
+                const durationMins = schemeData?.auction_duration_mins || 20;
+                setAuctionEndTime(new Date(startDate.getTime() + durationMins * 60000));
+            }
+            if (newAuction.status === 'COMPLETED') {
+                setAuctionEnded(true);
+                handleEndAuction(auctionData.id, true);
+            }
+            setAuctionData(prev => prev ? { ...prev, ...newAuction } : null);
+        });
+
+        return () => {
+            socket.emit('leave_auction', auctionData.id);
+            socket.disconnect();
+        };
     }, [auctionData, schemeData]);
 
     // --- 3. ROBUST TIMER LOGIC ---
@@ -189,7 +194,7 @@ export const LiveAuction: React.FC = () => {
         const minPrizeAllowed = (schemeData?.chit_value || 0) * 0.6;
         if (amount < minPrizeAllowed) return alert(`Bid cannot be lower than ₹${minPrizeAllowed} (Max 40% discount limit).`);
         try {
-            await supabase.from('bids').insert([{ auction_id: auctionData?.id, enrollment_id: enrollmentId, amount: amount, bid_type: 'ONLINE' }]);
+            await apiClient.post('/api/bids', { auction_id: auctionData?.id, enrollment_id: enrollmentId, amount: amount, bid_type: 'ONLINE' });
         } catch (error: any) { console.error("Bid failed", error); }
     };
 
@@ -212,23 +217,15 @@ export const LiveAuction: React.FC = () => {
         if (!confirm("Start auction now?")) return;
 
         const now = new Date();
-        
-        try {
-            // 1. Update the database.
-            const { data: updatedAuction, error } = await supabase.from('auctions').update({ 
-                status: 'LIVE', 
-                auction_date: now.toISOString() 
-            })
-            .eq('id', auctionData.id)
-            .select()
-            .single();
 
-            if (error) throw error;
+        try {
+            // 1. Call the API to start the auction.
+            const { data: updatedAuction } = await apiClient.post(`/api/auctions/${auctionData.id}/start`);
 
             // 2. OPTIMISTIC UI: Immediately update the local state.
             // This makes the UI feel instant.
             setAuctionData(updatedAuction);
-            
+
             const durationMins = schemeData?.auction_duration_mins || 20;
             const newEndTime = new Date(now.getTime() + durationMins * 60000);
             setAuctionEndTime(newEndTime); // This will trigger the timer useEffect to start the countdown.
@@ -241,7 +238,7 @@ export const LiveAuction: React.FC = () => {
 
     const handleEndAuction = async (aucId: string, onlyFetchDetails = false) => {
         // This function is now the single source of truth for ending an auction.
-        
+
         // This ref prevents this function from running multiple times if the timer and a status update fire close together.
         if (finalizationTriggered.current && !onlyFetchDetails) return;
         finalizationTriggered.current = true;
@@ -250,16 +247,14 @@ export const LiveAuction: React.FC = () => {
 
         const fetchWinnerDetails = async () => {
             try {
-                // Fetch the final, updated auction details from the database.
-                const { data: finalAuction, error: auctionError } = await supabase.from('auctions').select('*').eq('id', aucId).single();
-                if (auctionError) throw auctionError;
+                // Fetch the final, updated auction details from the API.
+                const { data: finalAuction } = await apiClient.get(`/api/auctions/${aucId}`);
 
                 if (finalAuction && finalAuction.winner_enrollment_id) {
                     // If a winner is found, fetch their profile name.
-                    const { data: winProfile, error: profileError } = await supabase.from('scheme_enrollments').select('profiles(full_name)').eq('id', finalAuction.winner_enrollment_id).single();
-                    if (profileError) throw profileError;
+                    const { data: winProfile } = await apiClient.get(`/api/enrollments/${finalAuction.winner_enrollment_id}/details`);
 
-                    const winnerName = (winProfile?.profiles as any)?.full_name || 'Unknown Winner';
+                    const winnerName = winProfile?.full_name || 'Unknown Winner';
 
                     setWinnerDetails({
                         winnerName: winnerName,
@@ -286,19 +281,19 @@ export const LiveAuction: React.FC = () => {
         if (isOwner) {
             try {
                 console.log("Owner is finalizing auction...");
-                // 1. Call the database function to determine the winner and update the table.
-                await supabase.rpc('finalize_auction', { p_scheme_id: id });
-                
-                // 2. IMPORTANT: Wait a moment for the database changes to commit and replicate.
+                // 1. Call the API to finalize the auction.
+                await apiClient.post(`/api/auctions/${aucId}/finalize`, { schemeId: id });
+
+                // 2. IMPORTANT: Wait a moment for the changes to propagate.
                 await new Promise(resolve => setTimeout(resolve, 2000)); // 2-second delay
 
                 // 3. Now, fetch the confirmed winner details.
                 await fetchWinnerDetails();
 
-            } catch (err) { 
-                console.error("RPC Finalization error", err); 
+            } catch (err) {
+                console.error("Finalization error", err);
                 alert("An error occurred while finalizing the auction. Please check the console.");
-                // Still try to fetch details in case the RPC partially succeeded.
+                // Still try to fetch details in case the finalization partially succeeded.
                 await fetchWinnerDetails();
             }
         }
@@ -310,7 +305,7 @@ export const LiveAuction: React.FC = () => {
         return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
     };
 
-    // --- FINAL, DATABASE-DRIVEN Cancel/Reset Auction Handler ---
+    // --- FINAL, API-DRIVEN Cancel/Reset Auction Handler ---
     const handleCancelAuction = async () => {
         if (!auctionData) return;
 
@@ -319,12 +314,9 @@ export const LiveAuction: React.FC = () => {
         }
 
         try {
-            // This is the only action needed. Update the status in the database.
-            // Our real-time listener will automatically receive this update and re-render the component correctly.
-            await supabase
-              .from('auctions')
-              .update({ status: 'UPCOMING' })
-              .eq('id', auctionData.id);
+            // Call the API to reset the auction.
+            // Our real-time Socket.io listener will automatically receive this update and re-render the component correctly.
+            await apiClient.post(`/api/auctions/${auctionData.id}/reset`);
 
             // We don't need to navigate. The UI will update automatically.
             // The isUpcoming flag will become true, and the "Start Now" button will reappear.
@@ -382,7 +374,7 @@ export const LiveAuction: React.FC = () => {
                     <button onClick={() => navigate(`/schemes/${id}/auctions`)} className="bg-white border border-gray-200 text-gray-600 p-2 rounded-full hover:bg-gray-50"><ArrowLeft size={20} /></button>
                     <div>
                         <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-3">
-                            Auction Room 
+                            Auction Room
                             {/* UPDATED LOGIC: Directly check auctionData.status */}
                             {auctionData?.status === 'UPCOMING' ? (
                                 <span className="bg-yellow-100 text-yellow-700 text-xs px-2 py-1 rounded border border-yellow-200 font-bold flex items-center gap-1"><Clock size={12} /> UPCOMING</span>
@@ -398,7 +390,7 @@ export const LiveAuction: React.FC = () => {
                     {isOwner && auctionData?.status === 'UPCOMING' && (
                         <button onClick={handleForceStart} className="bg-blue-600 text-white px-4 py-2 rounded-lg font-bold text-sm hover:bg-blue-700 shadow-lg flex items-center gap-2"><Play size={16} /> Start Now</button>
                     )}
-                    
+
                     {/* UPDATED LOGIC: Directly check auctionData.status */}
                     {TESTING_MODE && isOwner && auctionData?.status === 'LIVE' && !auctionEnded && (
                         <button onClick={handleCancelAuction} className="bg-red-600 text-white px-4 py-2 rounded-lg font-bold text-sm hover:bg-red-700 shadow-lg flex items-center gap-2">

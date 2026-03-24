@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { supabase } from '../services/supabaseClient';
+import { apiClient } from '../services/apiClient';
 import { CheckCircle, XCircle, FileText, ExternalLink, Loader2, RefreshCw, Users } from 'lucide-react';
 import { Card, Button, Modal } from '../components/UI';
 import { api } from '../services/api'; 
@@ -39,22 +39,15 @@ export const AdminVerify: React.FC = () => {
     const fetchCompanyVerificationRequests = async () => {
         setLoadingCompanyVerify(true);
         try {
-            const { data: profiles, error } = await supabase
-                .from('profiles')
-                .select(`id, full_name, email, verification_status, companies:company_id (company_name, cin_number)`)
-                .eq('verification_status', 'SUBMITTED');
-            if (error) throw error;
-            
-            const profileIds = profiles.map(p => p.id);
-            const { data: documents } = await supabase.from('documents').select('*').in('owner_id', profileIds);
+            const data = await apiClient.get('/api/admin/pending-verifications');
 
-            const merged: VerificationRequest[] = profiles.map((p: any) => ({
+            const merged: VerificationRequest[] = (data || []).map((p: any) => ({
                 id: p.id,
                 full_name: p.full_name,
                 email: p.email,
                 verification_status: p.verification_status,
                 companies: Array.isArray(p.companies) ? p.companies[0] : p.companies,
-                docs: documents?.filter(d => d.owner_id === p.id) || []
+                docs: p.docs || []
             }));
 
             setCompanyVerificationRequests(merged);
@@ -90,19 +83,7 @@ export const AdminVerify: React.FC = () => {
     const handleApproveCompany = async (id: string) => {
         setActionLoading(id);
         try {
-            // Update profile status
-            const { error } = await supabase
-                .from('profiles')
-                .update({ verification_status: 'APPROVED' })
-                .eq('id', id);
-
-            if (error) throw error;
-            
-            // Also update any submitted documents to VERIFIED
-            await supabase
-                .from('documents')
-                .update({ status: 'VERIFIED' })
-                .eq('owner_id', id);
+            await apiClient.post(`/api/admin/verify/${id}`, { status: 'APPROVED' });
 
             setCompanyVerificationRequests(prev => prev.filter(r => r.id !== id));
             
@@ -124,8 +105,7 @@ export const AdminVerify: React.FC = () => {
         if (!confirm("Are you sure you want to reject this company application?")) return;
         setActionLoading(id);
         try {
-            const { error } = await supabase.from('profiles').update({ verification_status: 'REJECTED' }).eq('id', id);
-            if (error) throw error;
+            await apiClient.post(`/api/admin/verify/${id}`, { status: 'REJECTED' });
             setCompanyVerificationRequests(prev => prev.filter(r => r.id !== id));
             
             if (user?.id === id) await refreshProfile();
@@ -140,8 +120,7 @@ export const AdminVerify: React.FC = () => {
     };
 
     const getFileUrl = (path: string) => {
-        const { data } = supabase.storage.from('company-onboarding-doc').getPublicUrl(path);
-        return data.publicUrl;
+        return apiClient.getFileUrl(path);
     };
 
     const handleJoinRequestAction = async (id: string, action: 'ACCEPT' | 'DENY') => {

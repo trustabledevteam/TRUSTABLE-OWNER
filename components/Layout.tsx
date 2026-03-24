@@ -22,7 +22,7 @@ import {
   UserCheck
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { supabase } from '../services/supabaseClient';
+import { apiClient } from '../services/apiClient';
 
 interface LayoutProps {
   children?: React.ReactNode;
@@ -53,23 +53,16 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
       if (!profile?.id) return;
 
       try {
-        const { data: doc, error } = await supabase
-          .from('documents')
-          .select('file_path')
-          .eq('owner_id', profile.id)
-          .eq('document_type', 'owner_photo')
-          .single();
+        const docs = await apiClient.get(`/api/documents?ownerId=${profile.id}`);
+        const doc = docs?.find((d: any) => d.document_type === 'owner_photo');
 
-        if (error) {
+        if (!doc) {
           console.log('No owner photo found for layout.');
           setProfileImageUrl(null);
           return;
         }
 
-        if (doc) {
-          const { data } = supabase.storage.from('company-onboarding-doc').getPublicUrl(doc.file_path);
-          setProfileImageUrl(data.publicUrl);
-        }
+        setProfileImageUrl(apiClient.getFileUrl(doc.file_path));
       } catch (err) {
         console.error("Error fetching owner photo for layout:", err);
       }

@@ -27,7 +27,6 @@ import { AdminVerify } from './pages/AdminVerify';
 import { PublicJoinScheme } from './pages/PublicJoinScheme';
 import { X, Loader2, AlertTriangle, Lock, RefreshCw } from 'lucide-react';
 import { AuthProvider, useAuth } from './context/AuthContext';
-import { supabase } from './services/supabaseClient';
 
 const Placeholder = ({ title }: { title: string }) => (
   <div className="p-8 text-center text-gray-500">
@@ -50,26 +49,18 @@ const AuthLogin = () => {
     }
   }, [session, navigate]);
 
+  const { login } = useAuth();
+
   const handleLogin = async () => {
     setLoading(true);
     setError('');
-    
-    try {
-        // Fix: Use signInWithPassword for v2
-        const { data, error } = await supabase.auth.signInWithPassword({
-            email,
-            password
-        });
 
-        if (error) {
-            setError(error.message);
-        } else if (data.user && !data.session) {
-            setError("Please check your email to confirm your account before logging in.");
-        }
-        // Success handled by AuthContext listener
-        setLoading(false);
+    try {
+        await login(email, password);
+        // Success: AuthContext will update, useEffect will navigate
     } catch (e: any) {
         setError(e.message || "An unexpected network error occurred.");
+    } finally {
         setLoading(false);
     }
   };
